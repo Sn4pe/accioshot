@@ -87,8 +87,8 @@ It lives in the menu bar and works like the Linux tray below. It also makes `Shi
 capture, so turn off whatever else uses that key, such as the system shortcut in System Settings >
 Keyboard > Keyboard Shortcuts > Screenshots.
 
-Allow Accioshot in Screen Recording the first time it asks. Each update counts as a new app, so allow
-it again afterwards. Errors go to `~/Library/Logs/accioshot.log`. Quit it from the menu until the next
+Allow Accioshot in Screen Recording the first time it asks. The first install creates a local signing
+certificate in your login keychain, so updates keep the permission. Errors go to `~/Library/Logs/accioshot.log`. Quit it from the menu until the next
 login, or stop it with:
 
 ```sh
