@@ -36,6 +36,8 @@ cat > "$APP/Contents/Info.plist" <<EOF
 </plist>
 EOF
 codesign --force --deep --sign - "$APP"
+# Each build is a new app to the system, and a stale grant looks enabled but does nothing.
+tccutil reset ScreenCapture "$LABEL" >/dev/null 2>&1 || true
 
 mkdir -p "$(dirname "$AGENT")" "$HOME/Library/Logs"
 cat > "$AGENT" <<EOF
@@ -53,7 +55,10 @@ cat > "$AGENT" <<EOF
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
-    <true/>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
     <key>StandardErrorPath</key>
     <string>$HOME/Library/Logs/accioshot.log</string>
 </dict>
