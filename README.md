@@ -26,6 +26,28 @@ bind = SUPER SHIFT, S, exec, accioshot capture region --upload imgur --copy
 
 If an upload fails and the capture was not being saved, it is kept in the default directory.
 
+## Tray
+
+`accioshot daemon` adds a tray icon: click for a region capture, or use the menu for the other modes,
+recent captures (click to copy the URL or path) and the captures folder. Key bindings keep working
+without it.
+
+## Config
+
+`~/.config/accioshot/config.toml` sets what a capture without flags does. Any `--save`, `--copy` or
+`--upload` flag replaces it. Action names are ShareX's:
+
+```toml
+save_dir = "~/Pictures/shots"
+uploader = "imgur"
+after_capture = ["SaveImageToFile", "CopyImageToClipboard", "UploadImageToHost"]
+after_upload = ["CopyURLToClipboard", "OpenURL"]
+notifications = true
+```
+
+The defaults save to `accioshot/` in your pictures directory and show a notification. Captures are
+listed in `~/.local/share/accioshot/history.jsonl`, private because it holds deletion URLs.
+
 ## Requirements
 
 - `xdg-desktop-portal` with a backend for your desktop

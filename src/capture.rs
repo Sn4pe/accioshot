@@ -14,6 +14,8 @@ use serde::de::DeserializeOwned;
 
 use crate::{Result, region};
 
+pub const CANCELLED: &str = "capture cancelled";
+
 #[derive(Clone, Copy, ValueEnum)]
 pub enum Mode {
     /// Select an area on a frozen capture of the screen
@@ -31,7 +33,7 @@ pub async fn capture(mode: Mode) -> Result<Vec<u8>> {
         Mode::Region if region::available() => {
             let png = portal(false).await?;
             let image = decode(&png)?.to_rgba8();
-            let (area, layout) = region::select(&image)?.ok_or("capture cancelled")?;
+            let (area, layout) = region::select(&image)?.ok_or(CANCELLED)?;
             crop(&png, area, &layout)
         }
         Mode::Region => portal(true).await,
@@ -62,7 +64,7 @@ async fn portal(interactive: bool) -> Result<Vec<u8>> {
         .await?
         .response()
         .map_err(|error| match error {
-            ashpd::Error::Response(ResponseError::Cancelled) => "capture cancelled".into(),
+            ashpd::Error::Response(ResponseError::Cancelled) => CANCELLED.into(),
             error => Box::<dyn std::error::Error>::from(format!("screenshot portal: {error}")),
         })?;
     let path = Url::parse(response.uri().as_str())?
