@@ -12,6 +12,7 @@ use reqwest::Url;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use crate::names::Window;
 use crate::{Result, region};
 
 pub const CANCELLED: &str = "capture cancelled";
@@ -233,6 +234,23 @@ impl Monitor {
 struct ActiveWindow {
     at: Option<[i32; 2]>,
     size: Option<[i32; 2]>,
+    title: Option<String>,
+    class: Option<String>,
+    pid: Option<i32>,
+}
+
+/// None off Hyprland or without a focused window, a name pattern is no reason to fail a capture.
+pub fn active_window_names() -> Option<Window> {
+    let window: ActiveWindow = hyprctl("activewindow").ok()?;
+    let process = window
+        .pid
+        .and_then(|pid| std::fs::read_to_string(format!("/proc/{pid}/comm")).ok())
+        .map(|name| name.trim().to_string())
+        .or(window.class)?;
+    Some(Window {
+        title: window.title?,
+        process,
+    })
 }
 
 fn monitor_areas(monitors: &[Monitor]) -> Vec<Area> {

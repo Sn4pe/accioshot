@@ -5,6 +5,7 @@ mod config;
 mod daemon;
 mod editor;
 mod history;
+mod names;
 mod notify;
 mod region;
 mod sxcu;
@@ -185,12 +186,25 @@ fn run(args: CaptureArgs) -> Result<()> {
     // Load first, a broken uploader should fail before the user picks a region.
     let mut uploader = actions.upload.as_deref().map(sxcu::load).transpose()?;
     std::thread::sleep(delay);
+    // Before the selector or the editor take the focus.
+    let window = names::needs_window(&config.name_pattern)
+        .then(capture::active_window_names)
+        .flatten();
     let mut png = runtime.block_on(capture::capture(args.mode))?;
     let now = chrono::Local::now();
-    let file_name = now.format("accioshot_%Y-%m-%d_%H-%M-%S.png").to_string();
+    let name_for = |png: &[u8]| {
+        let (width, height) = names::png_size(png);
+        let source = names::Source {
+            now,
+            width,
+            height,
+            window: window.as_ref(),
+        };
+        names::file_name(&config.name_pattern, &source)
+    };
     if actions.edit {
         let edited = editor::edit(&config.editor.command, &png)
-            .map_err(|error| keep_capture(&config, &file_name, &png, error.as_ref()))?
+            .map_err(|error| keep_capture(&config, &name_for(&png), &png, error.as_ref()))?
             .ok_or(capture::CANCELLED)?;
         png = edited.png;
         if edited.copy_only {
@@ -198,6 +212,7 @@ fn run(args: CaptureArgs) -> Result<()> {
             uploader = None;
         }
     }
+    let file_name = name_for(&png);
 
     let saved = actions
         .save

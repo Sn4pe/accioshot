@@ -97,7 +97,14 @@ after_capture = ["AnnotateImage", "SaveImageToFile", "CopyImageToClipboard", "Up
 after_upload = ["CopyURLToClipboard", "OpenURL"]
 notifications = true
 delay = 0               # seconds, `--delay` replaces only this
+name_pattern = "accioshot_%y-%mo-%d_%h-%mi-%s"
 ```
+
+`name_pattern` takes ShareX's tokens: `%y %yy %mo %mon %mon2 %d %h %mi %s %ms %pm %unix %wy` for the
+date, `%rn %ra %rx` for random characters (`%ra{10}` repeats it), `%guid`, `%width %height`, `%un %cn`
+for user and computer, and `%t %pn` for the active window's title and process, on Hyprland only.
+Month names are in English and the `%i` counters are not supported. The name also goes to the
+uploader, so `%t` can publish a window title.
 
 The defaults save to `accioshot/` in your pictures directory and show a notification. Captures are
 listed in `~/.local/share/accioshot/history.jsonl`, private because it holds deletion URLs.
@@ -145,5 +152,5 @@ Or run it directly with `nix run github:Sn4pe/accioshot -- capture region`.
 
 GPL-3.0-or-later. See [LICENSE](LICENSE).
 
-Parts of `src/syntax.rs` and `src/sxcu.rs` are ported from ShareX, Copyright (c) 2007-2026 ShareX Team,
+Parts of `src/syntax.rs`, `src/sxcu.rs` and `src/names.rs` are ported from ShareX, Copyright (c) 2007-2026 ShareX Team,
 licensed under the GPL.

@@ -32,6 +32,7 @@ pub struct Config {
     pub after_upload: Vec<AfterUpload>,
     pub notifications: bool,
     pub delay: f64,
+    pub name_pattern: String,
     pub editor: EditorConfig,
 }
 
@@ -59,6 +60,7 @@ impl Default for Config {
             after_upload: vec![AfterUpload::CopyUrlToClipboard],
             notifications: true,
             delay: 0.0,
+            name_pattern: crate::names::DEFAULT_PATTERN.to_string(),
             editor: EditorConfig::default(),
         }
     }
