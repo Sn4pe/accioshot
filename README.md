@@ -78,17 +78,18 @@ it cannot discard: closing it runs the other actions on the file as it is.
 command = "satty --filename {input} --output-filename {output} --early-exit"
 ```
 
-## Shortcut on macOS
+## macOS app
 
 `contrib/install-macos.sh` builds `Accioshot.app`, installs it in `/Applications` and starts it now and
 at every login. Run it again to update. It needs Rust and Node.
 
-The app has no window or Dock icon. It makes `Shift+Cmd+4` take a region capture with the actions in
-your config. There is no tray icon yet. Turn off whatever else uses that key, such as the system
-shortcut in System Settings > Keyboard > Keyboard Shortcuts > Screenshots.
+It lives in the menu bar and works like the Linux tray below. It also makes `Shift+Cmd+4` take a region
+capture, so turn off whatever else uses that key, such as the system shortcut in System Settings >
+Keyboard > Keyboard Shortcuts > Screenshots.
 
 Allow Accioshot in Screen Recording the first time it asks. Each update counts as a new app, so allow
-it again afterwards. Errors go to `~/Library/Logs/accioshot.log`. To stop it:
+it again afterwards. Errors go to `~/Library/Logs/accioshot.log`. Quit it from the menu until the next
+login, or stop it with:
 
 ```sh
 launchctl bootout gui/$(id -u)/com.sn4pe.accioshot
@@ -96,11 +97,11 @@ launchctl bootout gui/$(id -u)/com.sn4pe.accioshot
 
 ## Tray
 
-Linux only. `accioshot daemon` adds a tray icon: click for a region capture, or use the menu for the other modes,
+`accioshot daemon` adds a tray icon: click for a region capture, or use the menu for the other modes,
 recent captures (click to copy the URL or path) and the captures folder. Key bindings keep working
 without it.
 
-To start it with your session, copy [`contrib/accioshot.service`](contrib/accioshot.service) to
+On Linux, to start it with your session, copy [`contrib/accioshot.service`](contrib/accioshot.service) to
 `~/.config/systemd/user/`, adjust `ExecStart` if needed, and run
 `systemctl --user enable --now accioshot`. The Nix package installs it with the right path. Your
 compositor must reach `graphical-session.target`, which Hyprland only does with its systemd
@@ -123,7 +124,7 @@ name_pattern = "accioshot_%y-%mo-%d_%h-%mi-%s"
 
 `name_pattern` takes ShareX's tokens: `%y %yy %mo %mon %mon2 %d %h %mi %s %ms %pm %unix %wy` for the
 date, `%rn %ra %rx` for random characters (`%ra{10}` repeats it), `%guid`, `%width %height`, `%un %cn`
-for user and computer, and `%t %pn` for the active window's title and process, on Hyprland only.
+for user and computer, and `%t %pn` for the active window's title and process, on Hyprland and macOS.
 Month names are in English and the `%i` counters are not supported. The name also goes to the
 uploader, so `%t` can publish a window title.
 
@@ -131,7 +132,7 @@ The region selector is set under `[region]`:
 
 ```toml
 [region]
-snap_windows = true     # clicking selects the window under the cursor, on Hyprland
+snap_windows = true     # clicking selects the window under the cursor, on Hyprland and macOS
 magnifier = true        # zoom on the real pixels around the cursor
 magnifier_size = 150    # overlay pixels per side, 50 to 500
 magnifier_pixels = 15   # capture pixels per side, 3 to 35, odd
@@ -150,15 +151,14 @@ macOS), private because it holds deletion URLs.
 - `window` and `monitor` only work on Hyprland for now
 - `--copy` needs Wayland on Linux
 
-On macOS there is nothing to install, it uses `screencapture`, `osascript` and `pbcopy`:
+On macOS there is nothing else to install, it uses `screencapture`, `osascript` and `pbcopy`:
 
 - The app that launches accioshot needs Screen Recording in System Settings > Privacy & Security
-- `region` uses the system picker, Space switches it to windows. The `[region]` settings do not apply
-  and `last-region` asks every time, because the picker does not tell us the area
-- `window` is the topmost window and `monitor` the one under the cursor. Setups with several monitors
-  are untested
+- `region` shows the same selector, and clicking selects a window
+- `window` is the topmost window and `monitor` the one under the cursor
+- `%t` and `%pn` work in `name_pattern`
 - Notifications come from Script Editor, which needs to be allowed in System Settings
-- Other modes can go on a key with Shortcuts ("Run Shell Script") or a tool such as skhd
+- Setups with several monitors are untested
 
 ## Uploaders
 
