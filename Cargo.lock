@@ -9,6 +9,8 @@ dependencies = [
  "ashpd",
  "chrono",
  "clap",
+ "core-foundation 0.10.1",
+ "core-graphics",
  "dirs",
  "fancy-regex",
  "image",

@@ -44,10 +44,12 @@ fn append_to(path: &Path, entry: &Entry) -> Result<()> {
 
 /// The last `count` entries, newest first. A missing file is an empty history and damaged lines
 /// are skipped, a half written line should not hide the rest.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))] // only the tray lists them
 pub fn recent(count: usize) -> Vec<Entry> {
     path().map_or_else(|_| Vec::new(), |path| recent_from(&path, count))
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))] // only the tray lists them
 fn recent_from(path: &Path, count: usize) -> Vec<Entry> {
     let Ok(text) = std::fs::read_to_string(path) else {
         return Vec::new();
