@@ -59,7 +59,11 @@ mod platform {
     use crate::Result;
 
     pub fn copy_text(text: String) -> Result<()> {
-        let mut child = Command::new("pbcopy").stdin(Stdio::piped()).spawn()?;
+        // pbcopy decodes its input by locale, and launchd starts us without one.
+        let mut child = Command::new("pbcopy")
+            .env("LC_ALL", "en_US.UTF-8")
+            .stdin(Stdio::piped())
+            .spawn()?;
         child
             .stdin
             .take()
