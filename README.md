@@ -1,7 +1,6 @@
 # accioshot
 
-Screenshot capture and upload tool for Linux. A Rust port of [ShareX](https://github.com/ShareX/ShareX),
-starting with its core loop: capture, save, copy, upload.
+Screenshot capture and upload tool for Linux and macOS: capture, annotate, save, copy, upload.
 
 ## Usage
 
@@ -79,9 +78,25 @@ it cannot discard: closing it runs the other actions on the file as it is.
 command = "satty --filename {input} --output-filename {output} --early-exit"
 ```
 
+## Shortcut on macOS
+
+`contrib/install-macos.sh` builds `Accioshot.app`, installs it in `/Applications` and starts it now and
+at every login. Run it again to update. It needs Rust and Node.
+
+The app has no window or Dock icon. It makes `Shift+Cmd+4` take a region capture with the actions in
+your config. There is no tray icon yet. Turn off whatever else uses that key, such as the system
+shortcut in System Settings > Keyboard > Keyboard Shortcuts > Screenshots.
+
+Allow Accioshot in Screen Recording the first time it asks. Each update counts as a new app, so allow
+it again afterwards. Errors go to `~/Library/Logs/accioshot.log`. To stop it:
+
+```sh
+launchctl bootout gui/$(id -u)/com.sn4pe.accioshot
+```
+
 ## Tray
 
-`accioshot daemon` adds a tray icon: click for a region capture, or use the menu for the other modes,
+Linux only. `accioshot daemon` adds a tray icon: click for a region capture, or use the menu for the other modes,
 recent captures (click to copy the URL or path) and the captures folder. Key bindings keep working
 without it.
 
@@ -123,7 +138,8 @@ magnifier_pixels = 15   # capture pixels per side, 3 to 35, odd
 ```
 
 The defaults save to `accioshot/` in your pictures directory and show a notification. Captures are
-listed in `~/.local/share/accioshot/history.jsonl`, private because it holds deletion URLs.
+listed in `~/.local/share/accioshot/history.jsonl` (`~/Library/Application Support/accioshot/` on
+macOS), private because it holds deletion URLs.
 
 ## Requirements
 
@@ -132,12 +148,22 @@ listed in `~/.local/share/accioshot/history.jsonl`, private because it holds del
   Sway...): drag to select, click a window on Hyprland, `Esc` or right click to cancel. Elsewhere it
   uses the desktop's picker, and `last-region` cannot remember what you picked
 - `window` and `monitor` only work on Hyprland for now
-- `--copy` needs Wayland
+- `--copy` needs Wayland on Linux
+
+On macOS there is nothing to install, it uses `screencapture`, `osascript` and `pbcopy`:
+
+- The app that launches accioshot needs Screen Recording in System Settings > Privacy & Security
+- `region` uses the system picker, Space switches it to windows. The `[region]` settings do not apply
+  and `last-region` asks every time, because the picker does not tell us the area
+- `window` is the topmost window and `monitor` the one under the cursor. Setups with several monitors
+  are untested
+- Notifications come from Script Editor, which needs to be allowed in System Settings
+- Other modes can go on a key with Shortcuts ("Run Shell Script") or a tool such as skhd
 
 ## Uploaders
 
 `--upload` takes ShareX custom uploaders (`.sxcu`): a path, or a name in
-`~/.config/accioshot/uploaders/`. For example, `--upload imgur` reads
+`uploaders/` next to the config. For example, `--upload imgur` reads
 `~/.config/accioshot/uploaders/imgur.sxcu`.
 
 These files often hold API keys, so only use ones you trust and keep them private.
@@ -151,7 +177,7 @@ name patterns such as `%y`, and JSONPath filters and wildcards.
 ## Build
 
 ```sh
-nix develop
+nix develop     # Linux, macOS only needs Rust and Node
 cargo build --release
 ```
 
