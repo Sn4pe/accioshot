@@ -37,6 +37,8 @@ const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
 const WHITE: [u8; 4] = [0xFF, 0xFF, 0xFF, 0xFF];
 const DIM_PERCENT: u16 = 45;
+/// Same as ShareX's MinimumSize: a smaller drag is a click that moved a little.
+const MIN_DRAG: f64 = 5.0;
 
 /// False on compositors without layer-shell, such as GNOME.
 pub fn available() -> bool {
@@ -49,8 +51,9 @@ pub fn available() -> bool {
     LayerShell::bind(&globals, &queue.handle()).is_ok()
 }
 
-/// Returns the selected area and the monitor layout it refers to, or None if cancelled.
-pub fn select(image: &RgbaImage) -> Result<Option<(Area, Vec<Area>)>> {
+/// Returns the selected area and the monitor layout it refers to, or None if cancelled. `windows`
+/// can be clicked instead of dragging, topmost first.
+pub fn select(image: &RgbaImage, windows: Vec<Area>) -> Result<Option<(Area, Vec<Area>)>> {
     let connection = Connection::connect_to_env()?;
     let (globals, mut queue) = registry_queue_init::<Overlay>(&connection)?;
     let qh = queue.handle();
@@ -69,6 +72,7 @@ pub fn select(image: &RgbaImage) -> Result<Option<(Area, Vec<Area>)>> {
         screens: Vec::new(),
         layout: Vec::new(),
         image: image.clone(),
+        windows,
         keyboard: None,
         pointer: None,
         cursor: None,
@@ -157,6 +161,7 @@ struct Overlay {
     screens: Vec<Screen>,
     layout: Vec<Area>,
     image: RgbaImage,
+    windows: Vec<Area>,
     keyboard: Option<wl_keyboard::WlKeyboard>,
     pointer: Option<wl_pointer::WlPointer>,
     /// Last pointer position in global logical coordinates.
@@ -184,6 +189,7 @@ impl Overlay {
     fn draw(&mut self, index: usize, qh: &QueueHandle<Self>) {
         let selection = self.selection();
         let cursor = self.cursor;
+        let hovered = cursor.and_then(|cursor| window_at(&self.windows, cursor));
         let screen = &mut self.screens[index];
         let (width, height) = (screen.width as i32, screen.height as i32);
 
@@ -201,7 +207,12 @@ impl Overlay {
         canvas.copy_from_slice(&screen.dimmed);
         match (selection, cursor) {
             (Some(selection), _) => paint_selection(canvas, &screen.bright, screen, selection),
-            (None, Some(cursor)) => paint_crosshair(canvas, screen, cursor),
+            (None, Some(cursor)) => {
+                if let Some(window) = hovered {
+                    paint_selection(canvas, &screen.bright, screen, window);
+                }
+                paint_crosshair(canvas, screen, cursor);
+            }
             (None, None) => {}
         }
 
@@ -269,6 +280,25 @@ fn rect_between(a: (f64, f64), b: (f64, f64)) -> Area {
         width: (a.0 - b.0).abs(),
         height: (a.1 - b.1).abs(),
     }
+}
+
+fn window_at(windows: &[Area], (x, y): (f64, f64)) -> Option<Area> {
+    windows
+        .iter()
+        .find(|window| {
+            x >= window.x
+                && y >= window.y
+                && x < window.x + window.width
+                && y < window.y + window.height
+        })
+        .copied()
+}
+
+/// What releasing the button selects: the dragged area, or the window under a click.
+fn released(selection: Option<Area>, windows: &[Area], cursor: (f64, f64)) -> Option<Area> {
+    selection
+        .filter(|area| area.width >= MIN_DRAG && area.height >= MIN_DRAG)
+        .or_else(|| window_at(windows, cursor))
 }
 
 /// The selection in surface pixels, clamped to the monitor, as (left, top, right, bottom).
@@ -577,12 +607,10 @@ impl PointerHandler for Overlay {
                     button: BTN_LEFT, ..
                 } => {
                     self.cursor = Some(position);
-                    // A click without a drag selects nothing, keep waiting.
-                    match self.selection() {
-                        Some(area) if area.width >= 1.0 && area.height >= 1.0 => {
-                            self.result = Some(Some(area));
-                        }
-                        _ => self.drag_start = None,
+                    // A click with no window under it selects nothing, keep waiting.
+                    match released(self.selection(), &self.windows, position) {
+                        Some(area) => self.result = Some(Some(area)),
+                        None => self.drag_start = None,
                     }
                 }
                 _ => {}
@@ -628,6 +656,27 @@ mod tests {
         assert_eq!(rect_between((10.0, 20.0), (40.0, 60.0)), expected);
         assert_eq!(rect_between((40.0, 60.0), (10.0, 20.0)), expected);
         assert_eq!(rect_between((40.0, 20.0), (10.0, 60.0)), expected);
+    }
+
+    #[test]
+    fn topmost_window_wins() {
+        let windows = [area(0.0, 0.0, 100.0, 100.0), area(50.0, 50.0, 100.0, 100.0)];
+        assert_eq!(window_at(&windows, (60.0, 60.0)), Some(windows[0]));
+        assert_eq!(window_at(&windows, (120.0, 120.0)), Some(windows[1]));
+        assert_eq!(window_at(&windows, (150.0, 150.0)), None);
+    }
+
+    #[test]
+    fn drag_beats_the_window_and_a_small_drag_is_a_click() {
+        let windows = [area(0.0, 0.0, 100.0, 100.0)];
+        let drag = area(10.0, 10.0, 20.0, 20.0);
+        assert_eq!(released(Some(drag), &windows, (30.0, 30.0)), Some(drag));
+        let wobble = area(10.0, 10.0, 2.0, 1.0);
+        assert_eq!(
+            released(Some(wobble), &windows, (12.0, 11.0)),
+            Some(windows[0])
+        );
+        assert_eq!(released(Some(wobble), &[], (12.0, 11.0)), None);
     }
 
     #[test]

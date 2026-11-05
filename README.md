@@ -106,6 +106,13 @@ for user and computer, and `%t %pn` for the active window's title and process, o
 Month names are in English and the `%i` counters are not supported. The name also goes to the
 uploader, so `%t` can publish a window title.
 
+The region selector is set under `[region]`:
+
+```toml
+[region]
+snap_windows = true     # clicking selects the window under the cursor, on Hyprland
+```
+
 The defaults save to `accioshot/` in your pictures directory and show a notification. Captures are
 listed in `~/.local/share/accioshot/history.jsonl`, private because it holds deletion URLs.
 
@@ -113,7 +120,8 @@ listed in `~/.local/share/accioshot/history.jsonl`, private because it holds del
 
 - `xdg-desktop-portal` with a backend for your desktop
 - `region` freezes the screen and shows its own selector on compositors with layer-shell (Hyprland,
-  Sway...): drag to select, `Esc` or right click to cancel. Elsewhere it uses the desktop's picker
+  Sway...): drag to select, click a window on Hyprland, `Esc` or right click to cancel. Elsewhere it
+  uses the desktop's picker, and `last-region` cannot remember what you picked
 - `window` and `monitor` only work on Hyprland for now
 - `--copy` needs Wayland
 

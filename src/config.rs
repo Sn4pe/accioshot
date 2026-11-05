@@ -33,7 +33,20 @@ pub struct Config {
     pub notifications: bool,
     pub delay: f64,
     pub name_pattern: String,
+    pub region: RegionConfig,
     pub editor: EditorConfig,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RegionConfig {
+    pub snap_windows: bool,
+}
+
+impl Default for RegionConfig {
+    fn default() -> Self {
+        RegionConfig { snap_windows: true }
+    }
 }
 
 /// The built-in editor reads the rest of the [editor] table itself.
@@ -61,6 +74,7 @@ impl Default for Config {
             notifications: true,
             delay: 0.0,
             name_pattern: crate::names::DEFAULT_PATTERN.to_string(),
+            region: RegionConfig::default(),
             editor: EditorConfig::default(),
         }
     }

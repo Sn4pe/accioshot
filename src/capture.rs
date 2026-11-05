@@ -12,6 +12,7 @@ use reqwest::Url;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use crate::config::RegionConfig;
 use crate::names::Window;
 use crate::{Result, region};
 
@@ -31,17 +32,17 @@ pub enum Mode {
     Screen,
 }
 
-pub async fn capture(mode: Mode) -> Result<Vec<u8>> {
+pub async fn capture(mode: Mode, options: &RegionConfig) -> Result<Vec<u8>> {
     match mode {
-        Mode::Region => select_region().await,
+        Mode::Region => select_region(options).await,
         Mode::LastRegion => {
             let Some(last) = LastRegion::load() else {
-                return select_region().await;
+                return select_region(options).await;
             };
             let image = decode(&portal(false).await?)?;
             match last.fits(image.width(), image.height()) {
                 true => encode_crop(&image, last.rect),
-                false => select_region().await,
+                false => select_region(options).await,
             }
         }
         Mode::Screen => portal(false).await,
@@ -64,12 +65,17 @@ pub async fn capture(mode: Mode) -> Result<Vec<u8>> {
 }
 
 /// shortcut: the desktop's own picker does not tell us the area, so only our selector remembers it.
-async fn select_region() -> Result<Vec<u8>> {
+async fn select_region(options: &RegionConfig) -> Result<Vec<u8>> {
     if !region::available() {
         return portal(true).await;
     }
+    // Before the capture, so they match what gets frozen. Off Hyprland there are none to click.
+    let windows = match options.snap_windows {
+        true => visible_windows().unwrap_or_default(),
+        false => Vec::new(),
+    };
     let image = decode(&portal(false).await?)?;
-    let (area, layout) = region::select(&image.to_rgba8())?.ok_or(CANCELLED)?;
+    let (area, layout) = region::select(&image.to_rgba8(), windows)?.ok_or(CANCELLED)?;
     let rect = pixel_rect(area, &layout, image.width(), image.height())?;
     let last = LastRegion {
         rect,
@@ -253,6 +259,59 @@ pub fn active_window_names() -> Option<Window> {
     })
 }
 
+#[derive(Deserialize)]
+struct Workspace {
+    id: i32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MonitorWorkspaces {
+    active_workspace: Workspace,
+    special_workspace: Workspace,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Client {
+    at: [i32; 2],
+    size: [i32; 2],
+    workspace: Workspace,
+    mapped: bool,
+    hidden: bool,
+    floating: bool,
+    #[serde(rename = "focusHistoryID")]
+    focus_history_id: i32,
+}
+
+/// The windows on screen, topmost first.
+fn visible_windows() -> Result<Vec<Area>> {
+    let monitors: Vec<MonitorWorkspaces> = hyprctl("monitors")?;
+    let visible: Vec<i32> = monitors
+        .iter()
+        .flat_map(|monitor| [monitor.active_workspace.id, monitor.special_workspace.id])
+        .collect();
+    Ok(stack_windows(hyprctl("clients")?, &visible))
+}
+
+/// shortcut: Hyprland does not report the stacking order, so this assumes floating windows are on
+/// top and otherwise the most recently focused wins. Overlapping windows can pick the wrong one.
+fn stack_windows(mut clients: Vec<Client>, workspaces: &[i32]) -> Vec<Area> {
+    clients.retain(|client| {
+        client.mapped && !client.hidden && workspaces.contains(&client.workspace.id)
+    });
+    clients.sort_by_key(|client| (!client.floating, client.focus_history_id));
+    clients
+        .iter()
+        .map(|client| Area {
+            x: f64::from(client.at[0]),
+            y: f64::from(client.at[1]),
+            width: f64::from(client.size[0]),
+            height: f64::from(client.size[1]),
+        })
+        .collect()
+}
+
 fn monitor_areas(monitors: &[Monitor]) -> Vec<Area> {
     monitors.iter().map(Monitor::area).collect()
 }
@@ -308,6 +367,41 @@ mod tests {
             width,
             height,
         }
+    }
+
+    #[test]
+    fn windows_are_stacked_and_filtered() {
+        let client = |x, workspace, mapped, hidden, floating, focus| Client {
+            at: [x, 0],
+            size: [10, 10],
+            workspace: Workspace { id: workspace },
+            mapped,
+            hidden,
+            floating,
+            focus_history_id: focus,
+        };
+        let clients = vec![
+            client(1, 1, true, false, false, 3),
+            client(2, 1, true, false, false, 0),
+            client(3, 1, true, false, true, 5),
+            client(4, 9, true, false, true, 1),
+            client(5, 1, false, false, true, 1),
+            client(6, 1, true, true, true, 1),
+        ];
+        let order: Vec<f64> = stack_windows(clients, &[1, 2])
+            .iter()
+            .map(|window| window.x)
+            .collect();
+        assert_eq!(order, [3.0, 2.0, 1.0]);
+    }
+
+    #[test]
+    fn hyprland_client_json_parses() {
+        let text = r#"[{"address":"0x1","mapped":true,"hidden":false,"at":[9,51],"size":[946,1020],
+            "workspace":{"id":3,"name":"3"},"floating":false,"monitor":1,"class":"kitty",
+            "focusHistoryID":7}]"#;
+        let clients: Vec<Client> = serde_json::from_str(text).unwrap();
+        assert_eq!(clients[0].focus_history_id, 7);
     }
 
     #[test]

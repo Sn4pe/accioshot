@@ -190,7 +190,7 @@ fn run(args: CaptureArgs) -> Result<()> {
     let window = names::needs_window(&config.name_pattern)
         .then(capture::active_window_names)
         .flatten();
-    let mut png = runtime.block_on(capture::capture(args.mode))?;
+    let mut png = runtime.block_on(capture::capture(args.mode, &config.region))?;
     let now = chrono::Local::now();
     let name_for = |png: &[u8]| {
         let (width, height) = names::png_size(png);
