@@ -41,6 +41,11 @@
             nativeBuildInputs = nativeBuildInputs pkgs ++ [ pkgs.wrapGAppsHook3 ];
             buildInputs = buildInputs pkgs ++ editorInputs pkgs;
             preBuild = "cp -r ${editorUi} editor/ui/dist";
+            postInstall = ''
+              install -Dm644 contrib/accioshot.service $out/share/systemd/user/accioshot.service
+              substituteInPlace $out/share/systemd/user/accioshot.service \
+                --replace-fail /usr/bin/accioshot $out/bin/accioshot
+            '';
             meta.mainProgram = "accioshot";
           };
         });

@@ -85,6 +85,12 @@ command = "satty --filename {input} --output-filename {output} --early-exit"
 recent captures (click to copy the URL or path) and the captures folder. Key bindings keep working
 without it.
 
+To start it with your session, copy [`contrib/accioshot.service`](contrib/accioshot.service) to
+`~/.config/systemd/user/`, adjust `ExecStart` if needed, and run
+`systemctl --user enable --now accioshot`. The Nix package installs it with the right path. Your
+compositor must reach `graphical-session.target`, which Hyprland only does with its systemd
+integration.
+
 ## Config
 
 `~/.config/accioshot/config.toml` sets what a capture without flags does. Any `--save`, `--copy`,
