@@ -17,8 +17,8 @@ use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
 use super::{
-    HISTORY_POLL, MENU_CLOSE_DELAY, RECENT_COUNT, entry_label, history_modified, open,
-    single_instance, spawn_capture,
+    HISTORY_POLL, MENU_CLOSE_DELAY, MODES, RECENT_COUNT, entry_label, entry_text, history_modified,
+    open, single_instance, spawn_capture,
 };
 use crate::config::Config;
 use crate::history::{self, Entry};
@@ -33,13 +33,6 @@ const EVENT_HOT_KEY_PRESSED: u32 = 5;
 const SIGNATURE: u32 = u32::from_be_bytes(*b"acct");
 const ICON_SIZE: u32 = 44;
 
-const MODES: [(&str, &str); 5] = [
-    ("Region", "region"),
-    ("Last region", "last-region"),
-    ("Active window", "window"),
-    ("Focused monitor", "monitor"),
-    ("All monitors", "screen"),
-];
 const OPEN_FOLDER: &str = "open-folder";
 const QUIT: &str = "quit";
 const RECENT_PREFIX: &str = "recent:";
@@ -83,7 +76,6 @@ static EXE: OnceLock<PathBuf> = OnceLock::new();
 
 struct State {
     tray: TrayIcon,
-    recent: Vec<Entry>,
     pictures_dir: PathBuf,
     seen: Option<SystemTime>,
 }
@@ -116,7 +108,6 @@ pub fn run() -> Result<()> {
     STATE.with_borrow_mut(|state| {
         *state = Some(State {
             tray,
-            recent,
             pictures_dir: config.pictures_dir().unwrap_or_default(),
             seen: history_modified(),
         })
@@ -171,8 +162,9 @@ fn menu(recent: &[Entry]) -> Result<Menu> {
     }
     menu.append(&PredefinedMenuItem::separator())?;
     let submenu = Submenu::new("Recent", !recent.is_empty());
-    for (index, entry) in recent.iter().enumerate() {
-        let id = format!("{RECENT_PREFIX}{index}");
+    for entry in recent {
+        // The text itself, a refresh can replace the list while the menu is open.
+        let id = format!("{RECENT_PREFIX}{}", entry_text(entry));
         submenu.append(&MenuItem::with_id(id, entry_label(entry), true, None))?;
     }
     menu.append(&submenu)?;
@@ -187,29 +179,15 @@ fn on_menu(id: &str) {
         capture(mode, MENU_CLOSE_DELAY);
     } else if id == QUIT {
         std::process::exit(0);
-    } else {
+    } else if id == OPEN_FOLDER {
         STATE.with_borrow(|state| {
-            let Some(state) = state else { return };
-            if id == OPEN_FOLDER {
+            if let Some(state) = state {
                 open(state.pictures_dir.as_os_str());
-            } else if let Some(entry) = id
-                .strip_prefix(RECENT_PREFIX)
-                .and_then(|index| index.parse::<usize>().ok())
-                .and_then(|index| state.recent.get(index))
-            {
-                copy_entry(entry);
             }
         });
-    }
-}
-
-fn copy_entry(entry: &Entry) {
-    let text = entry
-        .url
-        .clone()
-        .or_else(|| entry.path.as_ref().map(|path| path.display().to_string()))
-        .unwrap_or_default();
-    if let Err(error) = clipboard::copy_text(text) {
+    } else if let Some(text) = id.strip_prefix(RECENT_PREFIX)
+        && let Err(error) = clipboard::copy_text(text.to_string())
+    {
         eprintln!("accioshot: {error}");
     }
 }
@@ -228,8 +206,7 @@ extern "C" fn refresh_recent(_: CFRunLoopTimerRef, _: *mut c_void) {
             return;
         }
         state.seen = modified;
-        state.recent = history::recent(RECENT_COUNT);
-        match menu(&state.recent) {
+        match menu(&history::recent(RECENT_COUNT)) {
             Ok(menu) => state.tray.set_menu(Some(Box::new(menu))),
             Err(error) => eprintln!("accioshot: cannot update the menu: {error}"),
         }

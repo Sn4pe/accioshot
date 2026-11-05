@@ -7,8 +7,8 @@ use ksni::menu::{MenuItem, StandardItem, SubMenu};
 use wl_clipboard_rs::copy::{MimeType, Options, Source};
 
 use super::{
-    HISTORY_POLL, MENU_CLOSE_DELAY, RECENT_COUNT, entry_label, history_modified, open,
-    single_instance, spawn_capture,
+    HISTORY_POLL, MENU_CLOSE_DELAY, MODES, RECENT_COUNT, entry_label, entry_text, history_modified,
+    open, single_instance, spawn_capture,
 };
 use crate::Result;
 use crate::config::Config;
@@ -65,25 +65,19 @@ impl ksni::Tray for Tray {
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
-        let mut menu: Vec<MenuItem<Self>> = [
-            ("Region", "region"),
-            ("Last region", "last-region"),
-            ("Active window", "window"),
-            ("Focused monitor", "monitor"),
-            ("All monitors", "screen"),
-        ]
-        .into_iter()
-        .map(|(label, mode)| {
-            StandardItem {
-                label: label.into(),
-                activate: Box::new(move |tray: &mut Self| {
-                    spawn_capture(tray.exe.clone(), mode, MENU_CLOSE_DELAY)
-                }),
-                ..Default::default()
-            }
-            .into()
-        })
-        .collect();
+        let mut menu: Vec<MenuItem<Self>> = MODES
+            .into_iter()
+            .map(|(label, mode)| {
+                StandardItem {
+                    label: label.into(),
+                    activate: Box::new(move |tray: &mut Self| {
+                        spawn_capture(tray.exe.clone(), mode, MENU_CLOSE_DELAY)
+                    }),
+                    ..Default::default()
+                }
+                .into()
+            })
+            .collect();
 
         menu.push(MenuItem::Separator);
         menu.push(
@@ -118,11 +112,7 @@ impl ksni::Tray for Tray {
 }
 
 fn recent_item(entry: &Entry) -> MenuItem<Tray> {
-    let text = entry
-        .url
-        .clone()
-        .or_else(|| entry.path.as_ref().map(|path| path.display().to_string()))
-        .unwrap_or_default();
+    let text = entry_text(entry);
     StandardItem {
         label: menu_label(&entry_label(entry)),
         activate: Box::new(move |_: &mut Tray| {

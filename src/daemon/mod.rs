@@ -24,6 +24,13 @@ const RECENT_COUNT: usize = 10;
 const HISTORY_POLL: Duration = Duration::from_secs(2);
 // Otherwise the frozen capture can include the tray menu while it closes.
 const MENU_CLOSE_DELAY: Duration = Duration::from_millis(250);
+const MODES: [(&str, &str); 5] = [
+    ("Region", "region"),
+    ("Last region", "last-region"),
+    ("Active window", "window"),
+    ("Focused monitor", "monitor"),
+    ("All monitors", "screen"),
+];
 
 /// Held until the process exits, the kernel releases it even after a crash.
 fn single_instance() -> Result<File> {
@@ -53,6 +60,15 @@ fn entry_label(entry: &Entry) -> String {
         .map(|name| name.to_string_lossy().into_owned());
     name.or_else(|| entry.url.clone())
         .unwrap_or_else(|| entry.time.clone())
+}
+
+/// What clicking a recent capture copies.
+fn entry_text(entry: &Entry) -> String {
+    entry
+        .url
+        .clone()
+        .or_else(|| entry.path.as_ref().map(|path| path.display().to_string()))
+        .unwrap_or_default()
 }
 
 fn spawn_capture(exe: PathBuf, mode: &'static str, delay: Duration) {
