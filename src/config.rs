@@ -9,6 +9,7 @@ use crate::Result;
 /// Action names come from ShareX's AfterCaptureTasks and AfterUploadTasks.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 pub enum AfterCapture {
+    AnnotateImage,
     SaveImageToFile,
     CopyImageToClipboard,
     UploadImageToHost,
@@ -30,6 +31,22 @@ pub struct Config {
     pub after_capture: Vec<AfterCapture>,
     pub after_upload: Vec<AfterUpload>,
     pub notifications: bool,
+    pub editor: EditorConfig,
+}
+
+/// The built-in editor reads the rest of the [editor] table itself.
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+pub struct EditorConfig {
+    pub command: String,
+}
+
+impl Default for EditorConfig {
+    fn default() -> Self {
+        EditorConfig {
+            command: crate::editor::BUILTIN.to_string(),
+        }
+    }
 }
 
 impl Default for Config {
@@ -40,6 +57,7 @@ impl Default for Config {
             after_capture: vec![AfterCapture::SaveImageToFile],
             after_upload: vec![AfterUpload::CopyUrlToClipboard],
             notifications: true,
+            editor: EditorConfig::default(),
         }
     }
 }
@@ -91,6 +109,7 @@ mod tests {
         let config = Config::load_from(Path::new("/nonexistent/config.toml")).unwrap();
         assert_eq!(config.after_capture, [AfterCapture::SaveImageToFile]);
         assert!(config.notifications);
+        assert_eq!(config.editor.command, "builtin");
     }
 
     #[test]
@@ -108,6 +127,13 @@ mod tests {
         assert_eq!(config.after_capture[1], AfterCapture::UploadImageToHost);
         assert_eq!(config.after_upload[1], AfterUpload::OpenUrl);
         assert!(!config.notifications);
+    }
+
+    #[test]
+    fn editor_table_leaves_builtin_settings_alone() {
+        let config: Config =
+            toml::from_str("[editor]\ncommand = \"satty\"\ntool = \"Arrow\"").unwrap();
+        assert_eq!(config.editor.command, "satty");
     }
 
     #[test]

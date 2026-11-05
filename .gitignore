@@ -1,2 +1,5 @@
 /target
 /result
+node_modules
+/editor/ui/dist
+/editor/gen

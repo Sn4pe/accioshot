@@ -1,3 +1,8 @@
+[workspace]
+members = [".", "editor"]
+# The editor needs WebKit and a built frontend, the CLI and tray do not.
+default-members = ["."]
+
 [package]
 name = "accioshot"
 version = "0.1.0"

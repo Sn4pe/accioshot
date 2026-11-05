@@ -1,0 +1,5 @@
+{
+  "extends": "@tsconfig/svelte/tsconfig.json",
+  "compilerOptions": { "strict": true, "target": "ES2022", "lib": ["ES2023", "DOM", "DOM.Iterable"], "types": ["svelte"] },
+  "include": ["src/**/*.ts", "src/**/*.svelte"]
+}

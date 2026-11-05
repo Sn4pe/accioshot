@@ -26,6 +26,51 @@ bind = SUPER SHIFT, S, exec, accioshot capture region --upload imgur --copy
 
 If an upload fails and the capture was not being saved, it is kept in the default directory.
 
+## Editor
+
+`--edit`, or `AnnotateImage` in `after_capture`, opens the capture in an editor before the other
+actions run. Discarding the edit cancels them.
+
+The built-in editor has select, rectangle, ellipse, line, arrow, freehand, text, numbered steps,
+highlight, blur, pixelate and crop, with undo. Press the tool's key (`v r e l a f t s h b p c`), hold
+`Shift` for squares and 45 degree lines, `Ctrl+S` to save, `Esc` to cancel what is in progress and
+then to close. Blur and pixelate can leave hidden text partly recoverable, so crop secrets out
+instead.
+
+Everything is set under `[editor]`. These are the defaults:
+
+```toml
+[editor]
+command = "builtin"     # or another program, see below
+tool = "Arrow"
+colors = ["#e5484d", "#f5a524", "#3fa66b", "#3b82c4", "#f4f1ea", "#1b1916"]
+highlight_color = "#ffe066"
+stroke_width = 4
+font_family = "sans-serif"
+font_size = 28
+step_size = 32
+blur_strength = 12
+pixel_size = 14
+remember_last = true    # reopen with the last tool, colors and sizes
+floating = true         # ask the compositor to float the window
+width = 1280
+height = 800
+
+[editor.keys]           # only what you want to change, "" turns a key off
+save = "ctrl+enter"
+redo = "ctrl+shift+z, ctrl+y"
+```
+
+Actions in `[editor.keys]` are the tool names plus `undo`, `redo`, `delete`, `save` and `discard`.
+
+To use another editor, set `command` to a program line with `{input}` and `{output}`. Without
+`{output}` it must edit `{input}` in place. A failed exit is an error, and no output means discarded:
+
+```toml
+[editor]
+command = "satty --filename {input} --output-filename {output} --early-exit"
+```
+
 ## Tray
 
 `accioshot daemon` adds a tray icon: click for a region capture, or use the menu for the other modes,
@@ -34,13 +79,13 @@ without it.
 
 ## Config
 
-`~/.config/accioshot/config.toml` sets what a capture without flags does. Any `--save`, `--copy` or
-`--upload` flag replaces it. Action names are ShareX's:
+`~/.config/accioshot/config.toml` sets what a capture without flags does. Any `--save`, `--copy`,
+`--upload` or `--edit` flag replaces it. Action names are ShareX's:
 
 ```toml
 save_dir = "~/Pictures/shots"
 uploader = "imgur"
-after_capture = ["SaveImageToFile", "CopyImageToClipboard", "UploadImageToHost"]
+after_capture = ["AnnotateImage", "SaveImageToFile", "CopyImageToClipboard", "UploadImageToHost"]
 after_upload = ["CopyURLToClipboard", "OpenURL"]
 notifications = true
 ```
@@ -75,6 +120,14 @@ name patterns such as `%y`, and JSONPath filters and wildcards.
 ```sh
 nix develop
 cargo build --release
+```
+
+That builds `accioshot`. The editor is a separate binary so the CLI and tray do not load WebKit, and it
+must sit next to `accioshot`:
+
+```sh
+(cd editor/ui && npm ci && npm run build)
+cargo build --release --workspace
 ```
 
 Or run it directly with `nix run github:Sn4pe/accioshot -- capture region`.

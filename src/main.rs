@@ -3,6 +3,7 @@
 mod capture;
 mod config;
 mod daemon;
+mod editor;
 mod history;
 mod notify;
 mod region;
@@ -47,6 +48,9 @@ struct CaptureArgs {
     /// Copy to the clipboard: the URL if uploading, otherwise the image
     #[arg(long)]
     copy: bool,
+    /// Open the capture in the editor first, the other actions get the edited image
+    #[arg(long)]
+    edit: bool,
     /// Upload with a .sxcu file: a path, or a name in ~/.config/accioshot/uploaders
     #[arg(long, value_name = "UPLOADER")]
     upload: Option<String>,
@@ -83,6 +87,7 @@ fn notify_failure(message: &str) {
 /// it asked for.
 #[derive(Debug, PartialEq)]
 struct Actions {
+    edit: bool,
     save: Option<PathBuf>,
     copy_image: bool,
     upload: Option<String>,
@@ -92,8 +97,10 @@ struct Actions {
 
 impl Actions {
     fn new(args: &CaptureArgs, config: &Config) -> Result<Actions> {
-        let mut actions = if args.save.is_some() || args.copy || args.upload.is_some() {
+        let mut actions = if args.save.is_some() || args.copy || args.edit || args.upload.is_some()
+        {
             Actions {
+                edit: args.edit,
                 save: args.save.clone(),
                 copy_image: args.copy && args.upload.is_none(),
                 upload: args.upload.clone(),
@@ -112,6 +119,7 @@ impl Actions {
                 false => None,
             };
             Actions {
+                edit: wants(AfterCapture::AnnotateImage),
                 save: wants(AfterCapture::SaveImageToFile)
                     .then(|| config.pictures_dir())
                     .transpose()?,
@@ -141,7 +149,10 @@ fn run(args: CaptureArgs) -> Result<()> {
 
     // Load first, a broken uploader should fail before the user picks a region.
     let uploader = actions.upload.as_deref().map(sxcu::load).transpose()?;
-    let png = runtime.block_on(capture::capture(args.mode))?;
+    let mut png = runtime.block_on(capture::capture(args.mode))?;
+    if actions.edit {
+        png = editor::edit(&config.editor.command, &png)?.ok_or(capture::CANCELLED)?;
+    }
     let now = chrono::Local::now();
     let file_name = now.format("accioshot_%Y-%m-%d_%H-%M-%S.png").to_string();
 
@@ -298,6 +309,7 @@ mod tests {
             mode: capture::Mode::Screen,
             save: save.map(PathBuf::from),
             copy,
+            edit: false,
             upload: upload.map(str::to_string),
         }
     }
@@ -313,6 +325,22 @@ mod tests {
         let config = config("after_capture = [\"UploadImageToHost\"]\nuploader = \"a\"");
         let actions = Actions::new(&args(None, true, None), &config).unwrap();
         assert!(actions.copy_image && actions.save.is_none() && actions.upload.is_none());
+    }
+
+    #[test]
+    fn config_can_open_the_editor() {
+        let config = config("after_capture = [\"AnnotateImage\", \"CopyImageToClipboard\"]");
+        let actions = Actions::new(&args(None, false, None), &config).unwrap();
+        assert!(actions.edit && actions.copy_image);
+    }
+
+    #[test]
+    fn edit_flag_alone_still_keeps_the_result() {
+        let mut flags = args(None, false, None);
+        flags.edit = true;
+        let actions = Actions::new(&flags, &config("")).unwrap();
+        assert!(actions.edit);
+        assert_eq!(actions.save.as_deref(), Some(Path::new("/shots")));
     }
 
     #[test]

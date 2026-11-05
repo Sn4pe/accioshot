@@ -8,18 +8,39 @@
       forAllSystems = nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" ];
       nativeBuildInputs = pkgs: with pkgs; [ cmake perl pkg-config ];
       buildInputs = pkgs: [ pkgs.libxkbcommon ];
+      editorInputs = pkgs: with pkgs; [
+        webkitgtk_4_1 gtk3 libsoup_3 openssl glib cairo pango gdk-pixbuf atk librsvg
+        glib-networking gsettings-desktop-schemas
+      ];
     in
     {
       packages = forAllSystems (system:
-        let pkgs = nixpkgs.legacyPackages.${system};
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          editorUi = pkgs.buildNpmPackage {
+            pname = "accioshot-editor-ui";
+            version = "0.1.0";
+            src = pkgs.lib.cleanSourceWith {
+              src = ./editor/ui;
+              filter = path: _: !(builtins.elem (baseNameOf path) [ "node_modules" "dist" ]);
+            };
+            npmDepsHash = "sha256-rUN6bkNJLtIwE6q6OEvhHRixxHCkvqYw69g6OzNu+78=";
+            installPhase = "cp -r dist $out";
+          };
         in {
           default = pkgs.rustPlatform.buildRustPackage {
             pname = "accioshot";
             version = "0.1.0";
-            src = ./.;
+            src = pkgs.lib.cleanSourceWith {
+              src = ./.;
+              filter = path: _: !(builtins.elem (baseNameOf path) [ "target" "node_modules" "dist" "result" ]);
+            };
             cargoLock.lockFile = ./Cargo.lock;
-            nativeBuildInputs = nativeBuildInputs pkgs;
-            buildInputs = buildInputs pkgs;
+            cargoBuildFlags = [ "--workspace" ];
+            cargoTestFlags = [ "--workspace" ];
+            nativeBuildInputs = nativeBuildInputs pkgs ++ [ pkgs.wrapGAppsHook3 ];
+            buildInputs = buildInputs pkgs ++ editorInputs pkgs;
+            preBuild = "cp -r ${editorUi} editor/ui/dist";
             meta.mainProgram = "accioshot";
           };
         });
@@ -29,8 +50,12 @@
         in {
           default = pkgs.mkShell {
             nativeBuildInputs = nativeBuildInputs pkgs
-              ++ (with pkgs; [ cargo rustc rustfmt clippy rust-analyzer ]);
-            buildInputs = buildInputs pkgs;
+              ++ (with pkgs; [ cargo rustc rustfmt clippy rust-analyzer nodejs ]);
+            buildInputs = buildInputs pkgs ++ editorInputs pkgs;
+            shellHook = ''
+              export GIO_EXTRA_MODULES=${pkgs.glib-networking}/lib/gio/modules
+              export XDG_DATA_DIRS=${pkgs.gsettings-desktop-schemas}/share/gsettings-schemas/${pkgs.gsettings-desktop-schemas.name}:${pkgs.gtk3}/share/gsettings-schemas/${pkgs.gtk3.name}:$XDG_DATA_DIRS
+            '';
           };
         });
     };
