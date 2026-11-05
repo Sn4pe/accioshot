@@ -27,6 +27,8 @@ pub fn run() -> Result<()> {
     let tray = Tray {
         recent: history::recent(RECENT_COUNT),
         pictures_dir: config.pictures_dir()?,
+        // Asked now: once an update replaces the binary, the kernel reports it as "(deleted)".
+        exe: std::env::current_exe()?,
     };
     let handle = tray.spawn()?;
 
@@ -65,6 +67,7 @@ fn history_modified() -> Option<SystemTime> {
 struct Tray {
     recent: Vec<Entry>,
     pictures_dir: PathBuf,
+    exe: PathBuf,
 }
 
 impl ksni::Tray for Tray {
@@ -81,7 +84,7 @@ impl ksni::Tray for Tray {
     }
 
     fn activate(&mut self, _x: i32, _y: i32) {
-        spawn_capture("region", MENU_CLOSE_DELAY);
+        spawn_capture(self.exe.clone(), "region", MENU_CLOSE_DELAY);
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
@@ -95,7 +98,9 @@ impl ksni::Tray for Tray {
         .map(|(label, mode)| {
             StandardItem {
                 label: label.into(),
-                activate: Box::new(move |_: &mut Self| spawn_capture(mode, MENU_CLOSE_DELAY)),
+                activate: Box::new(move |tray: &mut Self| {
+                    spawn_capture(tray.exe.clone(), mode, MENU_CLOSE_DELAY)
+                }),
                 ..Default::default()
             }
             .into()
@@ -169,16 +174,14 @@ fn menu_label(text: &str) -> String {
     text.replace('_', "__")
 }
 
-fn spawn_capture(mode: &'static str, delay: Duration) {
+fn spawn_capture(exe: PathBuf, mode: &'static str, delay: Duration) {
     std::thread::spawn(move || {
         std::thread::sleep(delay);
-        let result = std::env::current_exe().and_then(|exe| {
-            Command::new(exe)
-                .args(["capture", mode])
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .status()
-        });
+        let result = Command::new(exe)
+            .args(["capture", mode])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .status();
         if let Err(error) = result {
             eprintln!("accioshot: cannot start a capture: {error}");
         }
