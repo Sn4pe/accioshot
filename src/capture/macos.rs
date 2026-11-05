@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Captures with the system's `screencapture`, which also brings the native region picker.
+//! Captures with the system's `screencapture`.
 
 use std::fs::DirBuilder;
 use std::io::Cursor;
@@ -8,7 +8,6 @@ use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use clap::ValueEnum;
 use core_foundation::array::CFArray;
 use core_foundation::base::{CFType, ItemRef, TCFType};
 use core_foundation::dictionary::CFDictionary;
@@ -19,17 +18,15 @@ use core_graphics::event::CGEvent;
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 use core_graphics::geometry::CGRect;
 use core_graphics::window::{
-    copy_window_info, kCGNullWindowID, kCGWindowAlpha, kCGWindowLayer,
+    copy_window_info, kCGNullWindowID, kCGWindowAlpha, kCGWindowBounds, kCGWindowLayer,
     kCGWindowListExcludeDesktopElements, kCGWindowListOptionOnScreenOnly, kCGWindowName,
     kCGWindowNumber, kCGWindowOwnerName,
 };
 use image::{ImageFormat, ImageReader, RgbaImage, imageops};
 
+use super::Area;
 use crate::Result;
-use crate::config::RegionConfig;
 use crate::names::Window;
-
-pub const CANCELLED: &str = "capture cancelled";
 
 #[link(name = "CoreGraphics", kind = "framework")]
 unsafe extern "C" {
@@ -37,21 +34,67 @@ unsafe extern "C" {
     fn CGRequestScreenCaptureAccess() -> bool;
 }
 
-#[derive(Clone, Copy, ValueEnum)]
-pub enum Mode {
-    /// Select an area with the system picker, Space switches to picking a window
-    Region,
-    /// Same as region: the system picker does not tell us the area
-    LastRegion,
-    /// Frontmost window
-    Window,
-    /// Monitor under the cursor
-    Monitor,
-    /// All monitors
-    Screen,
+pub async fn screen() -> Result<Vec<u8>> {
+    in_temporary_dir(screen_in)
 }
 
-pub async fn capture(mode: Mode, _options: &RegionConfig) -> Result<Vec<u8>> {
+pub async fn window() -> Result<Vec<u8>> {
+    let id = frontmost_window()?.id;
+    in_temporary_dir(|dir| {
+        let file = dir.join("capture.png");
+        run(&[format!("-l{id}").as_ref(), "-o".as_ref(), file.as_os_str()])?;
+        Ok(std::fs::read(&file)?)
+    })
+}
+
+pub async fn monitor() -> Result<Vec<u8>> {
+    let index = screen_at(cursor()?, &screens()?).unwrap_or(0) + 1;
+    in_temporary_dir(|dir| {
+        let file = dir.join("capture.png");
+        run(&[format!("-D{index}").as_ref(), file.as_os_str()])?;
+        Ok(std::fs::read(&file)?)
+    })
+}
+
+/// The monitors in top left logical coordinates, the same space as windows and the cursor.
+pub fn layout() -> Result<Vec<Area>> {
+    Ok(screens()?
+        .into_iter()
+        .map(|[x, y, width, height]| Area {
+            x,
+            y,
+            width,
+            height,
+        })
+        .collect())
+}
+
+/// The windows on screen, topmost first.
+pub fn visible_windows() -> Result<Vec<Area>> {
+    Ok(normal_windows()?
+        .iter()
+        .filter_map(|window| {
+            let bounds = value(window, unsafe { kCGWindowBounds })?;
+            // SAFETY: the system documents this entry as a dictionary of numbers.
+            let bounds: CFDictionary<CFString, CFType> =
+                unsafe { CFDictionary::wrap_under_get_rule(bounds.as_CFTypeRef().cast()) };
+            let field = |name: &'static str| {
+                bounds
+                    .find(CFString::from_static_string(name))?
+                    .downcast::<CFNumber>()?
+                    .to_f64()
+            };
+            Some(Area {
+                x: field("X")?,
+                y: field("Y")?,
+                width: field("Width")?,
+                height: field("Height")?,
+            })
+        })
+        .collect())
+}
+
+fn in_temporary_dir(capture: impl FnOnce(&Path) -> Result<Vec<u8>>) -> Result<Vec<u8>> {
     // Without the permission screencapture can return only the wallpaper instead of failing.
     // SAFETY: neither takes arguments or has preconditions.
     if !unsafe { CGPreflightScreenCaptureAccess() } {
@@ -63,7 +106,7 @@ pub async fn capture(mode: Mode, _options: &RegionConfig) -> Result<Vec<u8>> {
         );
     }
     let dir = temporary_dir()?;
-    let result = capture_in(mode, &dir);
+    let result = capture(&dir);
     let _ = std::fs::remove_dir_all(&dir);
     result
 }
@@ -77,32 +120,8 @@ fn temporary_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
-fn capture_in(mode: Mode, dir: &Path) -> Result<Vec<u8>> {
-    let file = dir.join("capture.png");
-    match mode {
-        Mode::Region | Mode::LastRegion => {
-            run(&["-i".as_ref(), file.as_os_str()])?;
-            // Esc leaves no file and still exits with success.
-            std::fs::read(&file).map_err(|_| CANCELLED.into())
-        }
-        Mode::Window => {
-            let id = frontmost_window()?.id;
-            run(&[format!("-l{id}").as_ref(), "-o".as_ref(), file.as_os_str()])?;
-            Ok(std::fs::read(&file)?)
-        }
-        Mode::Monitor => {
-            let screens = screens()?;
-            let cursor = cursor()?;
-            let index = screen_at(cursor, &screens).unwrap_or(0) + 1;
-            run(&[format!("-D{index}").as_ref(), file.as_os_str()])?;
-            Ok(std::fs::read(&file)?)
-        }
-        Mode::Screen => screen(dir),
-    }
-}
-
 /// shortcut: assumes the files and `-D` follow the active display list, untested with two monitors.
-fn screen(dir: &Path) -> Result<Vec<u8>> {
+fn screen_in(dir: &Path) -> Result<Vec<u8>> {
     let screens = screens()?;
     let files: Vec<PathBuf> = (0..screens.len())
         .map(|index| dir.join(format!("{index}.png")))
@@ -213,27 +232,34 @@ struct FrontWindow {
     process: String,
 }
 
-/// shortcut: the topmost normal window, a floating one of another app can beat the focused one.
-fn frontmost_window() -> Result<FrontWindow> {
+/// Layer 0 is where normal windows live, in order from the top.
+fn normal_windows() -> Result<Vec<CFDictionary<CFString, CFType>>> {
     let options = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
     let windows: CFArray = copy_window_info(options, kCGNullWindowID).ok_or("no windows found")?;
-    windows
+    Ok(windows
         .get_all_values()
         .into_iter()
-        .find_map(|window| {
+        .filter_map(|window| {
             // SAFETY: every item of this list is a window's dictionary, and we retain it here.
             let window: CFDictionary<CFString, CFType> =
                 unsafe { CFDictionary::wrap_under_get_rule(window.cast()) };
             let visible = number(&window, unsafe { kCGWindowLayer })? == 0.0
                 && number(&window, unsafe { kCGWindowAlpha })? > 0.0;
-            visible.then(|| FrontWindow {
-                id: number(&window, unsafe { kCGWindowNumber }).unwrap_or_default() as i64,
-                // Hidden from apps without the screen recording permission.
-                title: text(&window, unsafe { kCGWindowName }).unwrap_or_default(),
-                process: text(&window, unsafe { kCGWindowOwnerName }).unwrap_or_default(),
-            })
+            visible.then_some(window)
         })
-        .ok_or_else(|| "no active window".into())
+        .collect())
+}
+
+/// shortcut: the topmost normal window, a floating one of another app can beat the focused one.
+fn frontmost_window() -> Result<FrontWindow> {
+    let windows = normal_windows()?;
+    let window = windows.first().ok_or("no active window")?;
+    Ok(FrontWindow {
+        id: number(window, unsafe { kCGWindowNumber }).unwrap_or_default() as i64,
+        // Hidden from apps without the screen recording permission.
+        title: text(window, unsafe { kCGWindowName }).unwrap_or_default(),
+        process: text(window, unsafe { kCGWindowOwnerName }).unwrap_or_default(),
+    })
 }
 
 fn value(window: &CFDictionary<CFString, CFType>, key: CFStringRef) -> Option<ItemRef<'_, CFType>> {

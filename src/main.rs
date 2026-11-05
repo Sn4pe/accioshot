@@ -1,9 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#[cfg(target_os = "linux")]
-mod capture;
-#[cfg(target_os = "macos")]
-#[path = "capture_macos.rs"]
 mod capture;
 mod clipboard;
 mod config;
@@ -16,7 +12,6 @@ mod editor;
 mod history;
 mod names;
 mod notify;
-#[cfg(target_os = "linux")]
 mod region;
 mod sxcu;
 mod syntax;
@@ -33,6 +28,12 @@ use clap::{Args, Parser, Subcommand};
 use config::{AfterCapture, AfterUpload, Config};
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
+
+const OPENER: &str = if cfg!(target_os = "macos") {
+    "open"
+} else {
+    "xdg-open"
+};
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -323,19 +324,14 @@ fn open_url(url: &str) {
         eprintln!("accioshot: not opening a non-web URL: {url}");
         return;
     }
-    let opener = if cfg!(target_os = "macos") {
-        "open"
-    } else {
-        "xdg-open"
-    };
-    let spawned = std::process::Command::new(opener)
+    let spawned = std::process::Command::new(OPENER)
         .arg(url)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn();
     if let Err(error) = spawned {
-        eprintln!("accioshot: cannot run {opener}: {error}");
+        eprintln!("accioshot: cannot run {OPENER}: {error}");
     }
 }
 
