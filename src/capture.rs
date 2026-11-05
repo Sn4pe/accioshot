@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::io::Cursor;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use ashpd::desktop::ResponseError;
@@ -9,8 +9,8 @@ use ashpd::desktop::screenshot::Screenshot;
 use clap::ValueEnum;
 use image::{DynamicImage, ImageFormat, ImageReader};
 use reqwest::Url;
-use serde::Deserialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 
 use crate::{Result, region};
 
@@ -20,6 +20,8 @@ pub const CANCELLED: &str = "capture cancelled";
 pub enum Mode {
     /// Select an area on a frozen capture of the screen
     Region,
+    /// The last selected area, asks for one if there is none or the screen size changed
+    LastRegion,
     /// Active window (Hyprland only)
     Window,
     /// Focused monitor (Hyprland only)
@@ -30,13 +32,17 @@ pub enum Mode {
 
 pub async fn capture(mode: Mode) -> Result<Vec<u8>> {
     match mode {
-        Mode::Region if region::available() => {
-            let png = portal(false).await?;
-            let image = decode(&png)?.to_rgba8();
-            let (area, layout) = region::select(&image)?.ok_or(CANCELLED)?;
-            crop(&png, area, &layout)
+        Mode::Region => select_region().await,
+        Mode::LastRegion => {
+            let Some(last) = LastRegion::load() else {
+                return select_region().await;
+            };
+            let image = decode(&portal(false).await?)?;
+            match last.fits(image.width(), image.height()) {
+                true => encode_crop(&image, last.rect),
+                false => select_region().await,
+            }
         }
-        Mode::Region => portal(true).await,
         Mode::Screen => portal(false).await,
         // shortcut: crops the full capture, so anything on top of the window shows up.
         // Upgrade to hyprland_toplevel_export_v1 if that matters.
@@ -53,6 +59,71 @@ pub async fn capture(mode: Mode) -> Result<Vec<u8>> {
                 .area();
             crop(&portal(false).await?, area, &monitor_areas(&monitors))
         }
+    }
+}
+
+/// shortcut: the desktop's own picker does not tell us the area, so only our selector remembers it.
+async fn select_region() -> Result<Vec<u8>> {
+    if !region::available() {
+        return portal(true).await;
+    }
+    let image = decode(&portal(false).await?)?;
+    let (area, layout) = region::select(&image.to_rgba8())?.ok_or(CANCELLED)?;
+    let rect = pixel_rect(area, &layout, image.width(), image.height())?;
+    let last = LastRegion {
+        rect,
+        image: [image.width(), image.height()],
+    };
+    // The capture is fine without it.
+    if let Err(error) = last.save() {
+        eprintln!("accioshot: cannot remember the region: {error}");
+    }
+    encode_crop(&image, rect)
+}
+
+/// Pixels instead of the logical area: replaying it needs no monitor layout, and a screen of
+/// another size is caught by comparing the image.
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+struct LastRegion {
+    rect: [u32; 4],
+    image: [u32; 2],
+}
+
+impl LastRegion {
+    fn path() -> Option<PathBuf> {
+        Some(dirs::state_dir()?.join("accioshot/last-region.json"))
+    }
+
+    fn load() -> Option<LastRegion> {
+        LastRegion::load_from(&LastRegion::path()?)
+    }
+
+    fn load_from(path: &Path) -> Option<LastRegion> {
+        serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
+    }
+
+    fn save(&self) -> Result<()> {
+        let path = LastRegion::path().ok_or("cannot find the state directory")?;
+        self.save_to(&path)
+    }
+
+    fn save_to(&self, path: &Path) -> Result<()> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        std::fs::write(path, serde_json::to_string(self)?)?;
+        Ok(())
+    }
+
+    fn fits(&self, width: u32, height: u32) -> bool {
+        let [x, y, rect_width, rect_height] = self.rect;
+        self.image == [width, height]
+            && rect_width > 0
+            && rect_height > 0
+            && x.checked_add(rect_width)
+                .is_some_and(|right| right <= width)
+            && y.checked_add(rect_height)
+                .is_some_and(|bottom| bottom <= height)
     }
 }
 
@@ -89,7 +160,11 @@ fn decode(png: &[u8]) -> Result<DynamicImage> {
 
 fn crop(png: &[u8], area: Area, layout: &[Area]) -> Result<Vec<u8>> {
     let image = decode(png)?;
-    let [x, y, width, height] = pixel_rect(area, layout, image.width(), image.height())?;
+    let rect = pixel_rect(area, layout, image.width(), image.height())?;
+    encode_crop(&image, rect)
+}
+
+fn encode_crop(image: &DynamicImage, [x, y, width, height]: [u32; 4]) -> Result<Vec<u8>> {
     let mut output = Vec::new();
     image
         .crop_imm(x, y, width, height)
@@ -215,6 +290,41 @@ mod tests {
             width,
             height,
         }
+    }
+
+    #[test]
+    fn last_region_survives_a_round_trip() {
+        let dir = std::env::temp_dir().join(format!("accioshot-last-{}", std::process::id()));
+        let path = dir.join("nested/last-region.json");
+        let last = LastRegion {
+            rect: [10, 20, 30, 40],
+            image: [100, 100],
+        };
+        last.save_to(&path).unwrap();
+        assert_eq!(LastRegion::load_from(&path), Some(last));
+        std::fs::write(&path, "damaged").unwrap();
+        assert_eq!(LastRegion::load_from(&path), None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn last_region_only_fits_the_same_screen() {
+        let last = LastRegion {
+            rect: [10, 20, 30, 40],
+            image: [100, 100],
+        };
+        assert!(last.fits(100, 100));
+        assert!(!last.fits(200, 100));
+        let outside = LastRegion {
+            rect: [90, 0, 30, 10],
+            image: [100, 100],
+        };
+        assert!(!outside.fits(100, 100));
+        let empty = LastRegion {
+            rect: [0, 0, 0, 10],
+            image: [100, 100],
+        };
+        assert!(!empty.fits(100, 100));
     }
 
     #[test]

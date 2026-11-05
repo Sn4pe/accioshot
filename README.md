@@ -7,6 +7,7 @@ starting with its core loop: capture, save, copy, upload.
 
 ```sh
 accioshot capture region                                # pick an area, save to <pictures>/accioshot
+accioshot capture last-region                           # the same area again, without asking
 accioshot capture screen --save ~/shots                 # all monitors
 accioshot capture window --copy                         # active window, image to the clipboard
 accioshot capture monitor --upload imgur --copy         # focused monitor, URL to the clipboard

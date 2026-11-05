@@ -90,6 +90,7 @@ impl ksni::Tray for Tray {
     fn menu(&self) -> Vec<MenuItem<Self>> {
         let mut menu: Vec<MenuItem<Self>> = [
             ("Region", "region"),
+            ("Last region", "last-region"),
             ("Active window", "window"),
             ("Focused monitor", "monitor"),
             ("All monitors", "screen"),
