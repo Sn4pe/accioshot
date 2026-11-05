@@ -41,11 +41,20 @@ pub struct Config {
 #[serde(default, deny_unknown_fields)]
 pub struct RegionConfig {
     pub snap_windows: bool,
+    pub magnifier: bool,
+    pub magnifier_size: u32,
+    pub magnifier_pixels: u32,
 }
 
+/// ShareX's defaults, from RegionCaptureOptions.
 impl Default for RegionConfig {
     fn default() -> Self {
-        RegionConfig { snap_windows: true }
+        RegionConfig {
+            snap_windows: true,
+            magnifier: true,
+            magnifier_size: 150,
+            magnifier_pixels: 15,
+        }
     }
 }
 

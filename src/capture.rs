@@ -75,7 +75,10 @@ async fn select_region(options: &RegionConfig) -> Result<Vec<u8>> {
         false => Vec::new(),
     };
     let image = decode(&portal(false).await?)?;
-    let (area, layout) = region::select(&image.to_rgba8(), windows)?.ok_or(CANCELLED)?;
+    let magnifier = options
+        .magnifier
+        .then(|| region::Magnifier::new(options.magnifier_size, options.magnifier_pixels));
+    let (area, layout) = region::select(&image.to_rgba8(), windows, magnifier)?.ok_or(CANCELLED)?;
     let rect = pixel_rect(area, &layout, image.width(), image.height())?;
     let last = LastRegion {
         rect,

@@ -111,6 +111,9 @@ The region selector is set under `[region]`:
 ```toml
 [region]
 snap_windows = true     # clicking selects the window under the cursor, on Hyprland
+magnifier = true        # zoom on the real pixels around the cursor
+magnifier_size = 150    # overlay pixels per side, 50 to 500
+magnifier_pixels = 15   # capture pixels per side, 3 to 35, odd
 ```
 
 The defaults save to `accioshot/` in your pictures directory and show a notification. Captures are

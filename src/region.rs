@@ -36,6 +36,8 @@ use crate::capture::Area;
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
 const WHITE: [u8; 4] = [0xFF, 0xFF, 0xFF, 0xFF];
+const BLACK: [u8; 4] = [0x00, 0x00, 0x00, 0xFF];
+const MAGNIFIER_GAP: u32 = 24;
 const DIM_PERCENT: u16 = 45;
 /// Same as ShareX's MinimumSize: a smaller drag is a click that moved a little.
 const MIN_DRAG: f64 = 5.0;
@@ -51,9 +53,37 @@ pub fn available() -> bool {
     LayerShell::bind(&globals, &queue.handle()).is_ok()
 }
 
+/// Shows the real pixels around the cursor, also on scaled monitors where the overlay is soft.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Magnifier {
+    /// Pixels of the capture per side, odd so one of them is the center.
+    pixels: u32,
+    /// Overlay pixels per capture pixel.
+    cell: u32,
+}
+
+impl Magnifier {
+    /// Limits from ShareX's RegionCaptureOptions.
+    pub fn new(size: u32, pixels: u32) -> Magnifier {
+        let pixels = pixels.clamp(3, 35) | 1;
+        Magnifier {
+            pixels,
+            cell: (size.clamp(50, 500) / pixels).max(3),
+        }
+    }
+
+    fn side(self) -> u32 {
+        self.pixels * self.cell
+    }
+}
+
 /// Returns the selected area and the monitor layout it refers to, or None if cancelled. `windows`
 /// can be clicked instead of dragging, topmost first.
-pub fn select(image: &RgbaImage, windows: Vec<Area>) -> Result<Option<(Area, Vec<Area>)>> {
+pub fn select(
+    image: &RgbaImage,
+    windows: Vec<Area>,
+    magnifier: Option<Magnifier>,
+) -> Result<Option<(Area, Vec<Area>)>> {
     let connection = Connection::connect_to_env()?;
     let (globals, mut queue) = registry_queue_init::<Overlay>(&connection)?;
     let qh = queue.handle();
@@ -73,6 +103,7 @@ pub fn select(image: &RgbaImage, windows: Vec<Area>) -> Result<Option<(Area, Vec
         layout: Vec::new(),
         image: image.clone(),
         windows,
+        magnifier,
         keyboard: None,
         pointer: None,
         cursor: None,
@@ -162,6 +193,7 @@ struct Overlay {
     layout: Vec<Area>,
     image: RgbaImage,
     windows: Vec<Area>,
+    magnifier: Option<Magnifier>,
     keyboard: Option<wl_keyboard::WlKeyboard>,
     pointer: Option<wl_pointer::WlPointer>,
     /// Last pointer position in global logical coordinates.
@@ -215,6 +247,10 @@ impl Overlay {
             }
             (None, None) => {}
         }
+        if let (Some(magnifier), Some(cursor)) = (self.magnifier, cursor) {
+            let view = (screen.area, screen.width, screen.height);
+            paint_magnifier(canvas, view, cursor, magnifier, &self.image, &self.layout);
+        }
 
         let surface = screen.layer.wl_surface();
         surface.damage_buffer(0, 0, width, height);
@@ -240,13 +276,7 @@ fn render_screen(
     width: u32,
     height: u32,
 ) -> Vec<u8> {
-    let min_x = layout.iter().map(|a| a.x).fold(f64::INFINITY, f64::min);
-    let min_y = layout.iter().map(|a| a.y).fold(f64::INFINITY, f64::min);
-    let max_x = layout
-        .iter()
-        .map(|a| a.x + a.width)
-        .fold(f64::MIN, f64::max);
-    let factor = f64::from(image.width()) / (max_x - min_x);
+    let (min_x, min_y, factor) = image_mapping(image, layout);
 
     let mut pixels = Vec::with_capacity(width as usize * height as usize * 4);
     for y in 0..height {
@@ -259,6 +289,17 @@ fn render_screen(
         }
     }
     pixels
+}
+
+/// The layout's top left corner and the capture pixels per logical pixel.
+fn image_mapping(image: &RgbaImage, layout: &[Area]) -> (f64, f64, f64) {
+    let min_x = layout.iter().map(|a| a.x).fold(f64::INFINITY, f64::min);
+    let min_y = layout.iter().map(|a| a.y).fold(f64::INFINITY, f64::min);
+    let max_x = layout
+        .iter()
+        .map(|a| a.x + a.width)
+        .fold(f64::MIN, f64::max);
+    (min_x, min_y, f64::from(image.width()) / (max_x - min_x))
 }
 
 fn dim(pixels: &[u8]) -> Vec<u8> {
@@ -331,14 +372,7 @@ fn paint_selection(canvas: &mut [u8], bright: &[u8], screen: &Screen, selection:
         let end = (y as usize * width as usize + right as usize) * 4;
         canvas[start..end].copy_from_slice(&bright[start..end]);
     }
-    for x in left..right {
-        put(canvas, width, x, top, WHITE);
-        put(canvas, width, x, bottom - 1, WHITE);
-    }
-    for y in top..bottom {
-        put(canvas, width, left, y, WHITE);
-        put(canvas, width, right - 1, y, WHITE);
-    }
+    outline(canvas, width, [left, top, right, bottom]);
 }
 
 fn paint_crosshair(canvas: &mut [u8], screen: &Screen, cursor: (f64, f64)) {
@@ -352,6 +386,84 @@ fn paint_crosshair(canvas: &mut [u8], screen: &Screen, cursor: (f64, f64)) {
     }
     for row in 0..screen.height {
         put(canvas, screen.width, x as u32, row, WHITE);
+    }
+}
+
+/// Where the magnifier goes along one axis: past the cursor, or before it near the far edge.
+fn magnifier_offset(cursor: u32, side: u32, screen: u32) -> u32 {
+    if cursor + MAGNIFIER_GAP + side <= screen {
+        cursor + MAGNIFIER_GAP
+    } else {
+        cursor.saturating_sub(MAGNIFIER_GAP + side)
+    }
+}
+
+/// `view` is the monitor's area and its surface size.
+fn paint_magnifier(
+    canvas: &mut [u8],
+    (area, width, height): (Area, u32, u32),
+    cursor: (f64, f64),
+    magnifier: Magnifier,
+    image: &RgbaImage,
+    layout: &[Area],
+) {
+    let x = cursor.0 - area.x;
+    let y = cursor.1 - area.y;
+    let side = magnifier.side();
+    if x < 0.0 || y < 0.0 || x >= f64::from(width) || y >= f64::from(height) {
+        return;
+    }
+    // Too small a monitor for it, the crosshair is still there.
+    if side + 2 > width || side + 2 > height {
+        return;
+    }
+    let left = magnifier_offset(x as u32, side + 2, width);
+    let top = magnifier_offset(y as u32, side + 2, height);
+
+    let (min_x, min_y, factor) = image_mapping(image, layout);
+    let center_x = ((cursor.0 - min_x) * factor) as i64;
+    let center_y = ((cursor.1 - min_y) * factor) as i64;
+    let half = i64::from(magnifier.pixels / 2);
+    let cell = magnifier.cell;
+
+    for row in 0..side {
+        let source_y = center_y + i64::from(row / cell) - half;
+        for column in 0..side {
+            let source_x = center_x + i64::from(column / cell) - half;
+            let color = u32::try_from(source_x)
+                .ok()
+                .zip(u32::try_from(source_y).ok())
+                .and_then(|(source_x, source_y)| image.get_pixel_checked(source_x, source_y))
+                .map_or(BLACK, |pixel| {
+                    let [r, g, b, _] = pixel.0;
+                    [b, g, r, 0xFF]
+                });
+            put(canvas, width, left + 1 + column, top + 1 + row, color);
+        }
+    }
+    outline(canvas, width, [left, top, left + side + 2, top + side + 2]);
+    let center = magnifier.pixels / 2 * cell;
+    let (center_left, center_top) = (left + 1 + center, top + 1 + center);
+    outline(
+        canvas,
+        width,
+        [
+            center_left,
+            center_top,
+            center_left + cell,
+            center_top + cell,
+        ],
+    );
+}
+
+fn outline(canvas: &mut [u8], width: u32, [left, top, right, bottom]: [u32; 4]) {
+    for x in left..right {
+        put(canvas, width, x, top, WHITE);
+        put(canvas, width, x, bottom - 1, WHITE);
+    }
+    for y in top..bottom {
+        put(canvas, width, left, y, WHITE);
+        put(canvas, width, right - 1, y, WHITE);
     }
 }
 
@@ -656,6 +768,49 @@ mod tests {
         assert_eq!(rect_between((10.0, 20.0), (40.0, 60.0)), expected);
         assert_eq!(rect_between((40.0, 60.0), (10.0, 20.0)), expected);
         assert_eq!(rect_between((40.0, 20.0), (10.0, 60.0)), expected);
+    }
+
+    #[test]
+    fn magnifier_limits_match_sharex() {
+        assert_eq!(
+            Magnifier::new(150, 15),
+            Magnifier {
+                pixels: 15,
+                cell: 10
+            }
+        );
+        // Even counts have no center pixel.
+        assert_eq!(Magnifier::new(150, 16).pixels, 17);
+        assert_eq!(
+            Magnifier::new(1, 999),
+            Magnifier {
+                pixels: 35,
+                cell: 3
+            }
+        );
+    }
+
+    #[test]
+    fn magnifier_stays_on_screen() {
+        assert_eq!(magnifier_offset(100, 152, 1920), 124);
+        assert_eq!(magnifier_offset(1900, 152, 1920), 1724);
+        assert_eq!(magnifier_offset(10, 152, 160), 0);
+    }
+
+    #[test]
+    fn magnifier_shows_the_capture_pixel_under_the_cursor() {
+        let mut image = RgbaImage::new(40, 40);
+        image.put_pixel(5, 6, image::Rgba([10, 20, 30, 255]));
+        let layout = [area(0.0, 0.0, 20.0, 20.0)];
+        let magnifier = Magnifier::new(50, 3);
+        let mut canvas = vec![0u8; 400 * 400 * 4];
+        let view = (layout[0], 400, 400);
+        paint_magnifier(&mut canvas, view, (2.5, 3.0), magnifier, &image, &layout);
+        let cell = magnifier.cell as usize;
+        // Top left of the box is 24 px past the cursor, inside the 1 px frame, center cell + 1.
+        let (x, y) = (2 + 24 + 1 + cell + 1, 3 + 24 + 1 + cell + 1);
+        let start = (y * 400 + x) * 4;
+        assert_eq!(canvas[start..start + 4], [30, 20, 10, 0xFF]);
     }
 
     #[test]
