@@ -62,7 +62,12 @@ struct File {
 
 impl Settings {
     pub fn load() -> Result<Settings, String> {
-        let dir = dirs::config_dir().ok_or("cannot find the config directory")?;
+        // `~/.config` on macOS too, like accioshot.
+        let dir = match cfg!(target_os = "macos") {
+            true => dirs::home_dir().map(|home| home.join(".config")),
+            false => dirs::config_dir(),
+        }
+        .ok_or("cannot find the config directory")?;
         Settings::load_from(&dir.join("accioshot/config.toml"))
     }
 

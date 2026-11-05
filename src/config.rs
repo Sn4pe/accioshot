@@ -89,9 +89,17 @@ impl Default for Config {
     }
 }
 
+/// `~/.config` on macOS too, so the same files work on both systems.
+pub fn base_dir() -> Option<PathBuf> {
+    match cfg!(target_os = "macos") {
+        true => dirs::home_dir().map(|home| home.join(".config")),
+        false => dirs::config_dir(),
+    }
+}
+
 impl Config {
     pub fn load() -> Result<Config> {
-        let dir = dirs::config_dir().ok_or("cannot find the config directory")?;
+        let dir = base_dir().ok_or("cannot find the config directory")?;
         Config::load_from(&dir.join("accioshot/config.toml"))
     }
 
