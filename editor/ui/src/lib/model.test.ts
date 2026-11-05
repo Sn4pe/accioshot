@@ -126,12 +126,20 @@ describe('keys', () => {
     expect(eventCombo({ key: 'Z', ctrlKey: true, metaKey: false, altKey: false, shiftKey: true })).toBe('ctrl+shift+z')
   })
 
-  it('lets the user override and ignores unknown actions', () => {
-    const map = keymap({ save: 'ctrl+enter', nonsense: 'x' })
+  it('lets the user override', () => {
+    const map = keymap({ save: 'ctrl+enter' })
     expect(map.get('ctrl+enter')).toBe('save')
     expect(map.get('ctrl+s')).toBeUndefined()
-    expect(map.get('x')).toBeUndefined()
     expect(map.get('a')).toBe('Arrow')
+  })
+
+  it('rejects unknown actions', () => {
+    expect(() => keymap({ nonsense: 'x' })).toThrow('nonsense')
+  })
+
+  it('copies with ctrl+c unless turned off', () => {
+    expect(keymap({}).get('ctrl+c')).toBe('copy')
+    expect(keymap({ copy: '' }).get('ctrl+c')).toBeUndefined()
   })
 
   it('accepts alternatives', () => {

@@ -30,6 +30,7 @@ name = "accioshot-editor"
 version = "0.1.0"
 dependencies = [
  "dirs",
+ "gtk",
  "serde",
  "serde_json",
  "tauri",

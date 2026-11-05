@@ -80,6 +80,8 @@
   const COLORED: readonly Tool[] = ['Rectangle', 'Ellipse', 'Line', 'Arrow', 'Freehand', 'Text', 'Step', 'Highlight']
   const MIN_DRAG = 3
   const STAGE_MARGIN = 24
+  const LOAD_TIMEOUT_MS = 10_000
+  const CLOSE_HINT = 'Close this window, the original capture is kept in the captures folder.'
 
   const history = new History()
   let nextId = 1
@@ -392,17 +394,17 @@
 
   async function finishDiscard() {
     await rememberState()
-    await invoke('discard')
+    await invoke('discard', { loaded: image !== null })
   }
 
-  async function save() {
+  async function finish(command: 'save' | 'copy') {
     if (!image || saving) return
     commitText()
     saving = true
     try {
       const png = await exportPng(doc, image, size)
       await rememberState()
-      await invoke('save', png)
+      await invoke(command, png)
     } catch (error) {
       failure = String(error)
       saving = false
@@ -418,7 +420,8 @@
       case 'delete':
         return remove()
       case 'save':
-        return void save()
+      case 'copy':
+        return void finish(action)
       case 'discard':
         return escape()
       default:
@@ -431,6 +434,8 @@
     const action = keys.get(eventCombo(event))
     if (!action) return
     event.preventDefault()
+    // Mid drag the gesture holds a copy of the document, only Esc may interrupt it.
+    if (gesture && action !== 'discard') return
     perform(action)
   }
 
@@ -492,26 +497,37 @@
   })
 
   async function load() {
+    let step = 'settings'
+    // A promise that never settles shows no error by itself.
+    const stalled = setTimeout(() => {
+      failure = `The capture did not load, stuck on ${step}. ${CLOSE_HINT}`
+    }, LOAD_TIMEOUT_MS)
     try {
       const loaded = await invoke<Settings>('settings')
       keys = keymap(loaded.keys)
       settings = loaded
       tool = isTool(loaded.tool) ? loaded.tool : 'Arrow'
       if (loaded.remember_last) {
+        step = 'load_state'
         const state = await invoke<{ tool?: unknown; styles?: Partial<Record<Tool, Style>> } | null>('load_state')
         if (isTool(state?.tool)) tool = state.tool
         if (state?.styles) styles = state.styles
       }
       cursor = tool === 'Select' ? 'default' : 'crosshair'
+      step = 'read_image'
       const bytes = await invoke<ArrayBuffer>('read_image')
+      step = 'decode'
       const url = URL.createObjectURL(new Blob([bytes], { type: 'image/png' }))
       const element = new Image()
       element.src = url
       await element.decode()
       URL.revokeObjectURL(url)
       image = element
+      failure = ''
     } catch (error) {
-      failure = String(error)
+      failure = `${error}. ${CLOSE_HINT}`
+    } finally {
+      clearTimeout(stalled)
     }
   }
 
@@ -588,7 +604,17 @@
         <button class="primary danger" onclick={finishDiscard}>Discard</button>
       {:else}
         <button class="quiet" onclick={requestDiscard}>Discard</button>
-        <button class="primary" disabled={!image || saving} onclick={save}>Save</button>
+        <button
+          class="quiet"
+          title={'Copy to the clipboard and close, without saving' + shortcut('copy')}
+          disabled={!image || saving}
+          onclick={() => finish('copy')}
+        >
+          Copy
+        </button>
+        <button class="primary" title={'Save' + shortcut('save')} disabled={!image || saving} onclick={() => finish('save')}>
+          Save
+        </button>
       {/if}
     </div>
   </header>
@@ -604,6 +630,8 @@
   >
     {#if failure}
       <p class="failure" role="alert">{failure}</p>
+    {:else if !image}
+      <p class="loading">Loading capture</p>
     {/if}
     {#if image}
       <div class="sheet" style:width="{view.width * scale}px" style:height="{view.height * scale}px">
@@ -741,8 +769,11 @@
     border-radius: 4px;
     transition: background-color 100ms;
   }
-  .quiet:hover {
+  .quiet:hover:not(:disabled) {
     background: #38332c;
+  }
+  .quiet:disabled {
+    color: #5c5549;
   }
   .primary {
     background: #e6dfd2;
@@ -793,6 +824,10 @@
     outline: 1px dashed #f4f1ea;
     outline-offset: 3px;
     user-select: text;
+  }
+  .loading {
+    margin: 0;
+    color: #a89f8f;
   }
   .failure {
     position: absolute;

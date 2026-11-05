@@ -5,6 +5,7 @@ mod settings;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use gtk::prelude::GtkSettingsExt;
 use serde_json::Value;
 use settings::Settings;
 use tauri::ipc::{InvokeBody, Request, Response};
@@ -13,6 +14,9 @@ use tauri::{AppHandle, LogicalSize, Manager, State, WebviewWindow};
 const USAGE: &str = "usage: accioshot-editor <input.png> <output.png>";
 const DMABUF_VARIABLE: &str = "WEBKIT_DISABLE_DMABUF_RENDERER";
 const FLOAT_SETTLE: Duration = Duration::from_millis(300);
+const COPY_ONLY_EXTENSION: &str = "copy-only";
+/// GTK counts it in 1024ths of a dot per inch.
+const DEFAULT_FONT_DPI: i32 = 96 * 1024;
 
 struct Paths {
     input: PathBuf,
@@ -52,12 +56,28 @@ fn state_path() -> Option<PathBuf> {
 /// Takes raw bytes, JSON would make a large image many times bigger.
 #[tauri::command]
 fn save(request: Request, paths: State<Paths>, app: AppHandle) -> Result<(), String> {
+    // A copy that failed halfway leaves its marker, and this save must still reach the disk.
+    let _ = std::fs::remove_file(paths.output.with_extension(COPY_ONLY_EXTENSION));
+    write_output(&request, &paths.output)?;
+    app.exit(0);
+    Ok(())
+}
+
+/// Same as save, the marker tells accioshot the image is only for the clipboard.
+#[tauri::command]
+fn copy(request: Request, paths: State<Paths>, app: AppHandle) -> Result<(), String> {
+    std::fs::write(paths.output.with_extension(COPY_ONLY_EXTENSION), "")
+        .map_err(|error| format!("cannot copy: {error}"))?;
+    write_output(&request, &paths.output)?;
+    app.exit(0);
+    Ok(())
+}
+
+fn write_output(request: &Request, output: &Path) -> Result<(), String> {
     let InvokeBody::Raw(png) = request.body() else {
         return Err("expected the image as raw bytes".to_string());
     };
-    write_atomically(&paths.output, png).map_err(|error| format!("cannot save: {error}"))?;
-    app.exit(0);
-    Ok(())
+    write_atomically(output, png).map_err(|error| format!("cannot save: {error}"))
 }
 
 /// accioshot treats a missing output as discarded, so it must never see a partial file.
@@ -67,9 +87,10 @@ fn write_atomically(path: &Path, data: &[u8]) -> std::io::Result<()> {
     std::fs::rename(temporary, path)
 }
 
+/// Closing before the image appeared is a failure, not a choice: accioshot must keep the capture.
 #[tauri::command]
-fn discard(app: AppHandle) {
-    app.exit(0);
+fn discard(loaded: bool, app: AppHandle) {
+    app.exit(if loaded { 0 } else { 1 });
 }
 
 /// WebKit crashes with Wayland error 71 on NVIDIA unless its DMABUF renderer is off. Setting the
@@ -78,6 +99,16 @@ fn work_around_nvidia() {
     if std::env::var_os(DMABUF_VARIABLE).is_none() && Path::new("/proc/driver/nvidia").exists() {
         // SAFETY: called first thing in main, before any other thread exists.
         unsafe { std::env::set_var(DMABUF_VARIABLE, "1") };
+    }
+}
+
+/// GTK leaves this at -1 without the gsettings-desktop-schemas, and WebKit scales the page by it:
+/// everything lays out at a negative size and the window looks black.
+fn work_around_missing_font_dpi() {
+    if let Some(settings) = gtk::Settings::default()
+        && settings.gtk_xft_dpi() <= 0
+    {
+        settings.set_gtk_xft_dpi(DEFAULT_FONT_DPI);
     }
 }
 
@@ -119,6 +150,7 @@ fn main() {
         })
         .manage(loaded)
         .setup(move |app| {
+            work_around_missing_font_dpi();
             let window = app.get_webview_window("main").ok_or("no main window")?;
             let size = LogicalSize::new(width, height);
             window.set_size(size)?;
@@ -139,7 +171,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            read_image, settings, load_state, save_state, save, discard
+            read_image, settings, load_state, save_state, save, copy, discard
         ])
         .run(tauri::generate_context!());
 

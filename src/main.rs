@@ -138,23 +138,53 @@ impl Actions {
         }
         Ok(actions)
     }
+
+    /// The editor's copy key: to the clipboard and nothing else.
+    fn only_copy(self) -> Actions {
+        Actions {
+            edit: self.edit,
+            save: None,
+            copy_image: true,
+            upload: None,
+            copy_url: false,
+            open_url: false,
+        }
+    }
+}
+
+/// For a failure that would lose the only copy of the capture.
+fn keep_capture(config: &Config, file_name: &str, png: &[u8], error: &dyn Error) -> Box<dyn Error> {
+    match config
+        .pictures_dir()
+        .and_then(|dir| save(&dir, file_name, png))
+    {
+        Ok(path) => format!("{error}, capture kept at {}", path.display()).into(),
+        Err(keep_error) => format!("{error}, and the capture is lost: {keep_error}").into(),
+    }
 }
 
 fn run(args: CaptureArgs) -> Result<()> {
     let config = Config::load()?;
-    let actions = Actions::new(&args, &config)?;
+    let mut actions = Actions::new(&args, &config)?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
 
     // Load first, a broken uploader should fail before the user picks a region.
-    let uploader = actions.upload.as_deref().map(sxcu::load).transpose()?;
+    let mut uploader = actions.upload.as_deref().map(sxcu::load).transpose()?;
     let mut png = runtime.block_on(capture::capture(args.mode))?;
-    if actions.edit {
-        png = editor::edit(&config.editor.command, &png)?.ok_or(capture::CANCELLED)?;
-    }
     let now = chrono::Local::now();
     let file_name = now.format("accioshot_%Y-%m-%d_%H-%M-%S.png").to_string();
+    if actions.edit {
+        let edited = editor::edit(&config.editor.command, &png)
+            .map_err(|error| keep_capture(&config, &file_name, &png, error.as_ref()))?
+            .ok_or(capture::CANCELLED)?;
+        png = edited.png;
+        if edited.copy_only {
+            actions = actions.only_copy();
+            uploader = None;
+        }
+    }
 
     let saved = actions
         .save
@@ -168,11 +198,10 @@ fn run(args: CaptureArgs) -> Result<()> {
                 Ok(uploaded) => Some(uploaded),
                 Err(error) => {
                     // Don't lose the capture if it only existed for the upload.
-                    if saved.is_none() {
-                        let path = save(&config.pictures_dir()?, &file_name, &png)?;
-                        eprintln!("accioshot: capture kept at {}", path.display());
-                    }
-                    return Err(error);
+                    return Err(match saved {
+                        Some(_) => error,
+                        None => keep_capture(&config, &file_name, &png, error.as_ref()),
+                    });
                 }
             }
         }
@@ -228,8 +257,14 @@ fn run(args: CaptureArgs) -> Result<()> {
         && let Some(uploaded) = uploaded
     {
         copy_to_clipboard(uploaded.url.into_bytes(), MimeType::Text)?;
-    } else if actions.copy_image {
-        copy_to_clipboard(png, MimeType::Specific("image/png".into()))?;
+    } else if actions.copy_image
+        && let Err(error) = copy_to_clipboard(png.clone(), MimeType::Specific("image/png".into()))
+    {
+        // After the editor's copy key the clipboard was the only destination.
+        return Err(match saved {
+            Some(_) => error,
+            None => keep_capture(&config, &file_name, &png, error.as_ref()),
+        });
     }
     Ok(())
 }
@@ -372,6 +407,27 @@ mod tests {
         let actions =
             Actions::new(&args(None, false, None), &config("after_capture = []")).unwrap();
         assert_eq!(actions.save.as_deref(), Some(Path::new("/shots")));
+    }
+
+    #[test]
+    fn only_copy_drops_every_other_action() {
+        let config = config("after_upload = [\"OpenURL\"]");
+        let actions = Actions::new(&args(Some("/x"), true, Some("a")), &config).unwrap();
+        let actions = actions.only_copy();
+        assert!(actions.copy_image && !actions.copy_url && !actions.open_url);
+        assert!(actions.save.is_none() && actions.upload.is_none());
+    }
+
+    #[test]
+    fn failure_keeps_the_capture() {
+        let dir = std::env::temp_dir().join(format!("accioshot-keep-{}", std::process::id()));
+        let mut config = config("");
+        config.save_dir = Some(dir.clone());
+        let broken: Box<dyn Error> = "broken".into();
+        let error = keep_capture(&config, "a.png", b"capture", broken.as_ref());
+        assert!(error.to_string().starts_with("broken, capture kept at"));
+        assert_eq!(fs::read(dir.join("a.png")).unwrap(), b"capture");
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

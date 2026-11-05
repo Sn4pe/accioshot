@@ -34,8 +34,12 @@ actions run. Discarding the edit cancels them.
 The built-in editor has select, rectangle, ellipse, line, arrow, freehand, text, numbered steps,
 highlight, blur, pixelate and crop, with undo. Press the tool's key (`v r e l a f t s h b p c`), hold
 `Shift` for squares and 45 degree lines, `Ctrl+S` to save, `Esc` to cancel what is in progress and
-then to close. Blur and pixelate can leave hidden text partly recoverable, so crop secrets out
-instead.
+then to close. `Ctrl+C` or the Copy button copies the image and closes: nothing is saved or uploaded,
+whatever the other actions say. Blur and pixelate can leave hidden text partly recoverable, so crop
+secrets out instead.
+
+If the editor fails, or the image never loads and you close it, the original capture is saved to the
+default directory.
 
 Everything is set under `[editor]`. These are the defaults:
 
@@ -61,10 +65,12 @@ save = "ctrl+enter"
 redo = "ctrl+shift+z, ctrl+y"
 ```
 
-Actions in `[editor.keys]` are the tool names plus `undo`, `redo`, `delete`, `save` and `discard`.
+Actions in `[editor.keys]` are the tool names plus `undo`, `redo`, `delete`, `save`, `copy` and
+`discard`.
 
-To use another editor, set `command` to a program line with `{input}` and `{output}`. Without
-`{output}` it must edit `{input}` in place. A failed exit is an error, and no output means discarded:
+To use another editor, set `command` to a program line with `{input}` and `{output}`. No output means
+discarded and a failed exit is an error. Without `{output}` it must edit `{input}` in place, and then
+it cannot discard: closing it runs the other actions on the file as it is.
 
 ```toml
 [editor]

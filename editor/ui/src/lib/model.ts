@@ -229,7 +229,7 @@ export class History {
   }
 }
 
-export type Action = Tool | 'undo' | 'redo' | 'delete' | 'save' | 'discard'
+export type Action = Tool | 'undo' | 'redo' | 'delete' | 'save' | 'copy' | 'discard'
 
 export const DEFAULT_KEYS: Record<Action, string> = {
   Select: 'v',
@@ -248,6 +248,7 @@ export const DEFAULT_KEYS: Record<Action, string> = {
   redo: 'ctrl+shift+z, ctrl+y',
   delete: 'delete',
   save: 'ctrl+s',
+  copy: 'ctrl+c',
   discard: 'escape',
 }
 
@@ -272,7 +273,7 @@ export function keymap(custom: Record<string, string>): Map<string, Action> {
   const merged = { ...DEFAULT_KEYS, ...custom } as Record<string, string>
   const map = new Map<string, Action>()
   for (const [action, combos] of Object.entries(merged)) {
-    if (!(action in DEFAULT_KEYS)) continue
+    if (!(action in DEFAULT_KEYS)) throw new Error(`[editor.keys] has an unknown action: ${action}`)
     for (const combo of combos.split(',')) {
       if (combo.trim()) map.set(normalizeCombo(combo), action as Action)
     }

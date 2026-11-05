@@ -11,12 +11,21 @@ use crate::Result;
 pub const BUILTIN: &str = "builtin";
 const BUILTIN_BINARY: &str = "accioshot-editor";
 const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
+/// Next to the output, the built-in editor creates it when the image is only for the clipboard.
+const COPY_ONLY_EXTENSION: &str = "copy-only";
+
+pub struct Edited {
+    pub png: Vec<u8>,
+    pub copy_only: bool,
+}
 
 /// Opens the capture in an editor. Returns the edited image, or None if the user discarded it.
-pub fn edit(command: &str, png: &[u8]) -> Result<Option<Vec<u8>>> {
+pub fn edit(command: &str, png: &[u8]) -> Result<Option<Edited>> {
     let dir = dirs::runtime_dir()
         .unwrap_or_else(std::env::temp_dir)
         .join(format!("accioshot-edit-{}", std::process::id()));
+    // A killed run with this same pid leaves its directory behind.
+    let _ = std::fs::remove_dir_all(&dir);
     // 0700: this is a screenshot, it may hold anything.
     DirBuilder::new().mode(0o700).create(&dir)?;
     let result = edit_in(command, png, &dir);
@@ -24,7 +33,7 @@ pub fn edit(command: &str, png: &[u8]) -> Result<Option<Vec<u8>>> {
     result
 }
 
-fn edit_in(command: &str, png: &[u8], dir: &Path) -> Result<Option<Vec<u8>>> {
+fn edit_in(command: &str, png: &[u8], dir: &Path) -> Result<Option<Edited>> {
     let input = dir.join("input.png");
     let output = dir.join("output.png");
     std::fs::write(&input, png)?;
@@ -56,7 +65,10 @@ fn edit_in(command: &str, png: &[u8], dir: &Path) -> Result<Option<Vec<u8>>> {
     if !edited.starts_with(PNG_SIGNATURE) {
         return Err("the editor did not write a PNG".into());
     }
-    Ok(Some(edited))
+    Ok(Some(Edited {
+        png: edited,
+        copy_only: output.with_extension(COPY_ONLY_EXTENSION).exists(),
+    }))
 }
 
 #[derive(Debug, PartialEq)]
@@ -116,7 +128,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let result = edit_in(command, png, &dir);
         std::fs::remove_dir_all(&dir).unwrap();
-        result
+        result.map(|edited| edited.map(|edited| edited.png))
     }
 
     #[test]
@@ -156,6 +168,31 @@ mod tests {
         let png = [PNG_SIGNATURE, b"edited"].concat();
         let edited = run("cp {input} {output}", &png).unwrap();
         assert_eq!(edited, Some(png));
+    }
+
+    #[test]
+    fn marker_asks_for_copy_only() {
+        let dir = std::env::temp_dir().join(format!("accioshot-copy-only-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let command = "cp {input} {output}";
+        let edited = edit_in(command, PNG_SIGNATURE, &dir).unwrap().unwrap();
+        assert!(!edited.copy_only);
+        std::fs::write(dir.join("output.copy-only"), "").unwrap();
+        let edited = edit_in(command, PNG_SIGNATURE, &dir).unwrap().unwrap();
+        assert!(edited.copy_only);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn leftover_directory_does_not_block_an_edit() {
+        let dir = dirs::runtime_dir()
+            .unwrap_or_else(std::env::temp_dir)
+            .join(format!("accioshot-edit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("input.png"), "old").unwrap();
+        let edited = edit("cp {input} {output}", PNG_SIGNATURE).unwrap().unwrap();
+        assert_eq!(edited.png, PNG_SIGNATURE);
+        assert!(!dir.exists());
     }
 
     #[test]
