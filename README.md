@@ -10,6 +10,7 @@ accioshot capture region                                # pick an area, save to 
 accioshot capture screen --save ~/shots                 # all monitors
 accioshot capture window --copy                         # active window, image to the clipboard
 accioshot capture monitor --upload imgur --copy         # focused monitor, URL to the clipboard
+accioshot capture screen --delay 3                      # wait 3 seconds first, for menus and tooltips
 ```
 
 stdout only holds the URL (if uploaded) or the saved path, so it works in scripts:
@@ -94,6 +95,7 @@ uploader = "imgur"
 after_capture = ["AnnotateImage", "SaveImageToFile", "CopyImageToClipboard", "UploadImageToHost"]
 after_upload = ["CopyURLToClipboard", "OpenURL"]
 notifications = true
+delay = 0               # seconds, `--delay` replaces only this
 ```
 
 The defaults save to `accioshot/` in your pictures directory and show a notification. Captures are

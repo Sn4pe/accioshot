@@ -16,6 +16,7 @@ use std::io::{self, Write};
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand};
 use wl_clipboard_rs::copy::{MimeType, Options, Source};
@@ -54,6 +55,9 @@ struct CaptureArgs {
     /// Upload with a .sxcu file: a path, or a name in ~/.config/accioshot/uploaders
     #[arg(long, value_name = "UPLOADER")]
     upload: Option<String>,
+    /// Seconds to wait before capturing, for menus and tooltips. Replaces `delay` in the config
+    #[arg(long, value_name = "SECONDS")]
+    delay: Option<f64>,
 }
 
 fn main() {
@@ -163,8 +167,16 @@ fn keep_capture(config: &Config, file_name: &str, png: &[u8], error: &dyn Error)
     }
 }
 
+fn capture_delay(args: &CaptureArgs, config: &Config) -> Result<Duration> {
+    let seconds = args.delay.unwrap_or(config.delay);
+    Duration::try_from_secs_f64(seconds).map_err(|_| {
+        format!("the delay must be a positive number of seconds, not {seconds}").into()
+    })
+}
+
 fn run(args: CaptureArgs) -> Result<()> {
     let config = Config::load()?;
+    let delay = capture_delay(&args, &config)?;
     let mut actions = Actions::new(&args, &config)?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -172,6 +184,7 @@ fn run(args: CaptureArgs) -> Result<()> {
 
     // Load first, a broken uploader should fail before the user picks a region.
     let mut uploader = actions.upload.as_deref().map(sxcu::load).transpose()?;
+    std::thread::sleep(delay);
     let mut png = runtime.block_on(capture::capture(args.mode))?;
     let now = chrono::Local::now();
     let file_name = now.format("accioshot_%Y-%m-%d_%H-%M-%S.png").to_string();
@@ -346,6 +359,7 @@ mod tests {
             copy,
             edit: false,
             upload: upload.map(str::to_string),
+            delay: None,
         }
     }
 
@@ -407,6 +421,29 @@ mod tests {
         let actions =
             Actions::new(&args(None, false, None), &config("after_capture = []")).unwrap();
         assert_eq!(actions.save.as_deref(), Some(Path::new("/shots")));
+    }
+
+    #[test]
+    fn delay_flag_replaces_the_config_and_keeps_the_actions() {
+        let config = config("delay = 2.0\nafter_capture = [\"CopyImageToClipboard\"]");
+        let mut flags = args(None, false, None);
+        assert_eq!(
+            capture_delay(&flags, &config).unwrap(),
+            Duration::from_secs(2)
+        );
+        flags.delay = Some(0.5);
+        assert_eq!(
+            capture_delay(&flags, &config).unwrap(),
+            Duration::from_millis(500)
+        );
+        assert!(Actions::new(&flags, &config).unwrap().copy_image);
+    }
+
+    #[test]
+    fn negative_delay_fails() {
+        let mut flags = args(None, false, None);
+        flags.delay = Some(-1.0);
+        assert!(capture_delay(&flags, &config("")).is_err());
     }
 
     #[test]

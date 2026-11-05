@@ -31,6 +31,7 @@ pub struct Config {
     pub after_capture: Vec<AfterCapture>,
     pub after_upload: Vec<AfterUpload>,
     pub notifications: bool,
+    pub delay: f64,
     pub editor: EditorConfig,
 }
 
@@ -57,6 +58,7 @@ impl Default for Config {
             after_capture: vec![AfterCapture::SaveImageToFile],
             after_upload: vec![AfterUpload::CopyUrlToClipboard],
             notifications: true,
+            delay: 0.0,
             editor: EditorConfig::default(),
         }
     }
