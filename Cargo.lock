@@ -26,6 +26,7 @@ dependencies = [
  "smithay-client-toolkit",
  "tokio",
  "toml 1.2.0+spec-1.1.0",
+ "tray-icon",
  "wayland-client",
  "wl-clipboard-rs",
  "zbus 6.2.1",

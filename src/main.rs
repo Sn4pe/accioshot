@@ -3,10 +3,6 @@
 mod capture;
 mod clipboard;
 mod config;
-#[cfg(target_os = "linux")]
-mod daemon;
-#[cfg(target_os = "macos")]
-#[path = "daemon_macos.rs"]
 mod daemon;
 mod editor;
 mod history;
@@ -46,7 +42,7 @@ struct Cli {
 enum Command {
     /// Take a screenshot. Prints the URL if uploaded, otherwise the saved path.
     Capture(CaptureArgs),
-    /// Run in the background: the tray icon on Linux, the Shift+Cmd+4 shortcut on macOS
+    /// Run the tray icon, on macOS also the Shift+Cmd+4 shortcut
     Daemon,
 }
 
