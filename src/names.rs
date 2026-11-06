@@ -10,7 +10,6 @@ use std::io::Read;
 
 use chrono::{DateTime, Local};
 
-pub const DEFAULT_PATTERN: &str = "accioshot_%y-%mo-%d_%h-%mi-%s";
 const FALLBACK_NAME: &str = "accioshot";
 /// Room for the extension and the suffix of a repeated name in the usual 255 byte limit.
 const MAX_NAME_BYTES: usize = 200;
@@ -224,7 +223,10 @@ mod tests {
 
     #[test]
     fn default_pattern_keeps_the_old_names() {
-        assert_eq!(name(DEFAULT_PATTERN), "accioshot_2026-03-09_15-04-05.png");
+        assert_eq!(
+            name(crate::config::DEFAULT_NAME_PATTERN),
+            "accioshot_2026-03-09_15-04-05.png"
+        );
     }
 
     #[test]

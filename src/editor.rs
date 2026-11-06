@@ -7,9 +7,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::Result;
+use crate::config::BUILTIN_EDITOR;
 
-pub const BUILTIN: &str = "builtin";
-const BUILTIN_BINARY: &str = "accioshot-editor";
+const UI_BINARY: &str = "accioshot-ui";
 const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
 /// Next to the output, the built-in editor creates it when the image is only for the clipboard.
 const COPY_ONLY_EXTENSION: &str = "copy-only";
@@ -83,10 +83,10 @@ struct Plan {
 fn plan(command: &str, input: &Path, output: &Path) -> Result<Plan> {
     let input_text = input.display().to_string();
     let output_text = output.display().to_string();
-    if command == BUILTIN {
+    if command == BUILTIN_EDITOR {
         return Ok(Plan {
-            program: builtin_binary(),
-            args: vec![input_text, output_text],
+            program: std::env::current_exe().map_or(UI_BINARY.into(), |exe| ui_binary(&exe)),
+            args: vec!["edit".to_string(), input_text, output_text],
             result: output.to_path_buf(),
         });
     }
@@ -106,13 +106,12 @@ fn plan(command: &str, input: &Path, output: &Path) -> Result<Plan> {
     })
 }
 
-/// Next to this binary first, so a build or a package finds its own editor.
-fn builtin_binary() -> PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|exe| Some(exe.parent()?.join(BUILTIN_BINARY)))
+/// Next to `exe` first, so a build or a package finds its own windows.
+pub fn ui_binary(exe: &Path) -> PathBuf {
+    exe.parent()
+        .map(|dir| dir.join(UI_BINARY))
         .filter(|path| path.exists())
-        .unwrap_or_else(|| BUILTIN_BINARY.into())
+        .unwrap_or_else(|| UI_BINARY.into())
 }
 
 #[cfg(test)]
@@ -150,6 +149,13 @@ mod tests {
             ]
         );
         assert_eq!(plan.result, PathBuf::from("/a b/out.png"));
+    }
+
+    #[test]
+    fn builtin_opens_the_edit_window() {
+        let plan = plan(BUILTIN_EDITOR, Path::new("/in"), Path::new("/out")).unwrap();
+        assert_eq!(plan.args, ["edit", "/in", "/out"]);
+        assert_eq!(plan.result, PathBuf::from("/out"));
     }
 
     #[test]

@@ -1,0 +1,175 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Catppuccin, https://catppuccin.com. Keep --bg in step with ui/src/theme.rs. */
+:root,
+:root[data-theme='latte'] {
+  color-scheme: light;
+  --bg: #eff1f5;
+  --bar: #e6e9ef;
+  --plate: #dce0e8;
+  --plate-hover: #ccd0da;
+  --hover: #ccd0da;
+  --active: #bcc0cc;
+  --text: #4c4f69;
+  --strong: #4c4f69;
+  --soft: #5c5f77;
+  --muted: #5c5f77;
+  --faint: #5c5f77; /* subtext0 falls below 4.5:1 on Latte */
+  --disabled: #acb0be;
+  --primary: #4c4f69;
+  --primary-hover: #5c5f77;
+  --primary-disabled: #ccd0da;
+  --on-primary: #eff1f5;
+  --on-primary-disabled: #8c8fa1;
+  --danger: #d20f39;
+  --danger-hover: color-mix(in srgb, #d20f39 88%, #4c4f69); /* maroon is too light for its label */
+  --on-danger: #eff1f5;
+  --failure-bg: color-mix(in srgb, #d20f39 22%, #eff1f5);
+  --failure-text: #4c4f69;
+  --check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='%23eff1f5' stroke-width='2'/%3E%3C/svg%3E");
+  --caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%235c5f77'/%3E%3C/svg%3E");
+}
+:root[data-theme='frappe'] {
+  color-scheme: dark;
+  --bg: #303446;
+  --bar: #292c3c;
+  --plate: #232634;
+  --plate-hover: #414559;
+  --hover: #414559;
+  --active: #51576d;
+  --text: #c6d0f5;
+  --strong: #c6d0f5;
+  --soft: #b5bfe2;
+  --muted: #b5bfe2;
+  --faint: #a5adce;
+  --disabled: #626880;
+  --primary: #c6d0f5;
+  --primary-hover: #b5bfe2;
+  --primary-disabled: #414559;
+  --on-primary: #303446;
+  --on-primary-disabled: #838ba7;
+  --danger: #e78284;
+  --danger-hover: #ea999c;
+  --on-danger: #303446;
+  --failure-bg: color-mix(in srgb, #e78284 22%, #303446);
+  --failure-text: #c6d0f5;
+  --check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='%23303446' stroke-width='2'/%3E%3C/svg%3E");
+  --caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23b5bfe2'/%3E%3C/svg%3E");
+}
+:root[data-theme='macchiato'] {
+  color-scheme: dark;
+  --bg: #24273a;
+  --bar: #1e2030;
+  --plate: #181926;
+  --plate-hover: #363a4f;
+  --hover: #363a4f;
+  --active: #494d64;
+  --text: #cad3f5;
+  --strong: #cad3f5;
+  --soft: #b8c0e0;
+  --muted: #b8c0e0;
+  --faint: #a5adcb;
+  --disabled: #5b6078;
+  --primary: #cad3f5;
+  --primary-hover: #b8c0e0;
+  --primary-disabled: #363a4f;
+  --on-primary: #24273a;
+  --on-primary-disabled: #8087a2;
+  --danger: #ed8796;
+  --danger-hover: #ee99a0;
+  --on-danger: #24273a;
+  --failure-bg: color-mix(in srgb, #ed8796 22%, #24273a);
+  --failure-text: #cad3f5;
+  --check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='%2324273a' stroke-width='2'/%3E%3C/svg%3E");
+  --caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23b8c0e0'/%3E%3C/svg%3E");
+}
+:root[data-theme='mocha'] {
+  color-scheme: dark;
+  --bg: #1e1e2e;
+  --bar: #181825;
+  --plate: #11111b;
+  --plate-hover: #313244;
+  --hover: #313244;
+  --active: #45475a;
+  --text: #cdd6f4;
+  --strong: #cdd6f4;
+  --soft: #bac2de;
+  --muted: #bac2de;
+  --faint: #a6adc8;
+  --disabled: #585b70;
+  --primary: #cdd6f4;
+  --primary-hover: #bac2de;
+  --primary-disabled: #313244;
+  --on-primary: #1e1e2e;
+  --on-primary-disabled: #7f849c;
+  --danger: #f38ba8;
+  --danger-hover: #eba0ac;
+  --on-danger: #1e1e2e;
+  --failure-bg: color-mix(in srgb, #f38ba8 22%, #1e1e2e);
+  --failure-text: #cdd6f4;
+  --check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='%231e1e2e' stroke-width='2'/%3E%3C/svg%3E");
+  --caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23bac2de'/%3E%3C/svg%3E");
+}
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.4 system-ui, sans-serif;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#app {
+  height: 100%;
+}
+button {
+  font: inherit;
+  color: inherit;
+  border: 0;
+  background: none;
+}
+input,
+select,
+textarea {
+  user-select: text;
+  -webkit-user-select: text;
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}
+.quiet,
+.primary {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 4px;
+  transition: background-color 100ms;
+}
+.quiet:hover:not(:disabled) {
+  background: var(--hover);
+}
+.quiet:disabled {
+  color: var(--disabled);
+}
+.primary {
+  background: var(--primary);
+  color: var(--on-primary);
+  font-weight: 600;
+}
+.primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+.primary:disabled {
+  background: var(--primary-disabled);
+  color: var(--on-primary-disabled);
+}
+.primary.danger {
+  background: var(--danger);
+  color: var(--on-danger);
+}
+.primary.danger:hover {
+  background: var(--danger-hover);
+}

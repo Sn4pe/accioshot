@@ -660,18 +660,6 @@
 </div>
 
 <style>
-  :global(html, body) {
-    height: 100%;
-    margin: 0;
-    background: #1b1916;
-    color: #e6dfd2;
-    font: 13px/1.4 system-ui, sans-serif;
-    overflow: hidden;
-    user-select: none;
-  }
-  :global(#app) {
-    height: 100%;
-  }
   .editor {
     display: flex;
     flex-direction: column;
@@ -683,7 +671,7 @@
     align-items: center;
     gap: 6px 20px;
     padding: 6px 12px;
-    background: #2a2621;
+    background: var(--bar);
   }
   .tools,
   .history {
@@ -702,35 +690,24 @@
     gap: 8px;
     margin-left: auto;
   }
-  button {
-    font: inherit;
-    color: inherit;
-    border: 0;
-    background: none;
-  }
-  button:focus-visible,
-  input:focus-visible {
-    outline: 2px solid #e6dfd2;
-    outline-offset: 1px;
-  }
   .tool {
     display: grid;
     place-items: center;
     width: 32px;
     height: 32px;
     border-radius: 4px;
-    color: #a89f8f;
+    color: var(--muted);
     transition: color 100ms, background-color 100ms;
   }
   .tool:hover:not(:disabled) {
-    color: #e6dfd2;
+    color: var(--text);
   }
   .tool.active {
-    background: #443e35;
-    color: #f4f1ea;
+    background: var(--active);
+    color: var(--strong);
   }
   .tool:disabled {
-    color: #5c5549;
+    color: var(--disabled);
   }
   .swatches {
     display: flex;
@@ -743,56 +720,24 @@
     border-radius: 3px;
   }
   .swatch.current {
-    outline: 2px solid #f4f1ea;
+    outline: 2px solid var(--strong);
     outline-offset: 2px;
   }
   .size {
     display: flex;
     align-items: center;
     gap: 8px;
-    color: #a89f8f;
+    color: var(--muted);
   }
   .size input {
     width: 110px;
     margin: 0;
-    accent-color: #c9bfae;
+    accent-color: var(--soft);
   }
   .size output {
     min-width: 3ch;
-    color: #e6dfd2;
+    color: var(--text);
     font-variant-numeric: tabular-nums;
-  }
-  .quiet,
-  .primary {
-    height: 32px;
-    padding: 0 14px;
-    border-radius: 4px;
-    transition: background-color 100ms;
-  }
-  .quiet:hover:not(:disabled) {
-    background: #38332c;
-  }
-  .quiet:disabled {
-    color: #5c5549;
-  }
-  .primary {
-    background: #e6dfd2;
-    color: #1b1916;
-    font-weight: 600;
-  }
-  .primary:hover:not(:disabled) {
-    background: #f4f1ea;
-  }
-  .primary:disabled {
-    background: #443e35;
-    color: #8c8374;
-  }
-  .primary.danger {
-    background: #c9443f;
-    color: #fff;
-  }
-  .primary.danger:hover {
-    background: #d9524c;
   }
   .question {
     margin-right: 4px;
@@ -827,7 +772,7 @@
   }
   .loading {
     margin: 0;
-    color: #a89f8f;
+    color: var(--muted);
   }
   .failure {
     position: absolute;
@@ -836,8 +781,8 @@
     right: 24px;
     margin: 0;
     padding: 10px 14px;
-    background: #4a2320;
-    color: #f6d9d6;
+    background: var(--failure-bg);
+    color: var(--failure-text);
     border-radius: 4px;
     user-select: text;
   }

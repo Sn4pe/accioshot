@@ -8,7 +8,7 @@ use wl_clipboard_rs::copy::{MimeType, Options, Source};
 
 use super::{
     HISTORY_POLL, MENU_CLOSE_DELAY, MODES, RECENT_COUNT, entry_label, entry_text, history_modified,
-    open, single_instance, spawn_capture,
+    open, single_instance, spawn_capture, spawn_ui,
 };
 use crate::Result;
 use crate::config::Config;
@@ -89,6 +89,16 @@ impl ksni::Tray for Tray {
             }
             .into(),
         );
+        for (label, window) in [("History", "history"), ("Settings", "settings")] {
+            menu.push(
+                StandardItem {
+                    label: label.into(),
+                    activate: Box::new(move |tray: &mut Self| spawn_ui(&tray.exe, window)),
+                    ..Default::default()
+                }
+                .into(),
+            );
+        }
         let dir = self.pictures_dir.clone();
         menu.push(
             StandardItem {

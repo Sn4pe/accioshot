@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
@@ -22,6 +22,18 @@ pub fn path() -> Result<PathBuf> {
     Ok(dir.join("accioshot/history.jsonl"))
 }
 
+/// Removing rewrites the file, so a capture appending at that moment has to wait for it.
+fn lock(path: &Path) -> Result<File> {
+    let file = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .mode(0o600)
+        .open(path.with_extension("lock"))?;
+    file.lock()?;
+    Ok(file)
+}
+
 pub fn append(entry: &Entry) -> Result<()> {
     append_to(&path()?, entry)
 }
@@ -30,6 +42,7 @@ fn append_to(path: &Path, entry: &Entry) -> Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
+    let _lock = lock(path)?;
     let mut line = serde_json::to_string(entry)?;
     line.push('\n');
     // 0600: deletion URLs let anyone remove the upload.
@@ -40,6 +53,34 @@ fn append_to(path: &Path, entry: &Entry) -> Result<()> {
         .open(path)?
         .write_all(line.as_bytes())?;
     Ok(())
+}
+
+/// Removes the entry, if it is still there. Damaged lines stay, they may be someone's only record.
+pub fn remove(entry: &Entry) -> Result<bool> {
+    remove_from(&path()?, entry)
+}
+
+fn remove_from(path: &Path, entry: &Entry) -> Result<bool> {
+    let _lock = lock(path)?;
+    let text = std::fs::read_to_string(path)?;
+    let kept: String = text
+        .split_inclusive('\n')
+        .filter(|line| serde_json::from_str::<Entry>(line).ok().as_ref() != Some(entry))
+        .collect();
+    if kept.len() == text.len() {
+        return Ok(false);
+    }
+    let temporary = path.with_extension("partial");
+    let _ = std::fs::remove_file(&temporary);
+    // 0600: deletion URLs let anyone remove the upload.
+    OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .mode(0o600)
+        .open(&temporary)?
+        .write_all(kept.as_bytes())?;
+    std::fs::rename(temporary, path)?;
+    Ok(true)
 }
 
 /// The last `count` entries, newest first. A missing file is an empty history and damaged lines
@@ -100,6 +141,44 @@ mod tests {
         let mut handle = OpenOptions::new().append(true).open(&file).unwrap();
         handle.write_all(b"{\"time\":\"cut\n").unwrap();
         assert_eq!(recent_from(&file, 5), [entry("a")]);
+        std::fs::remove_dir_all(file.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn removing_keeps_the_rest_and_damaged_lines() {
+        let file = temp_file("remove");
+        for url in ["a", "b"] {
+            append_to(&file, &entry(url)).unwrap();
+        }
+        let mut handle = OpenOptions::new().append(true).open(&file).unwrap();
+        handle.write_all(b"{\"time\":\"cut\n").unwrap();
+        assert!(remove_from(&file, &entry("a")).unwrap());
+        assert!(!remove_from(&file, &entry("a")).unwrap());
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.ends_with("{\"time\":\"cut\n") && !text.contains("\"url\":\"a\""));
+        let mode = std::fs::metadata(&file).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+        std::fs::remove_dir_all(file.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn appends_during_a_removal_are_not_lost() {
+        let file = temp_file("race");
+        append_to(&file, &entry("gone")).unwrap();
+        let writer = {
+            let file = file.clone();
+            std::thread::spawn(move || {
+                for index in 0..200 {
+                    append_to(&file, &entry(&index.to_string())).unwrap();
+                }
+            })
+        };
+        for index in 0..100 {
+            let _ = remove_from(&file, &entry(&format!("x{index}")));
+        }
+        remove_from(&file, &entry("gone")).unwrap();
+        writer.join().unwrap();
+        assert_eq!(recent_from(&file, usize::MAX).len(), 200);
         std::fs::remove_dir_all(file.parent().unwrap()).unwrap();
     }
 

@@ -59,7 +59,8 @@ const KEYS: &[(&str, u32)] = &[
     ("f12", 0x6F),
 ];
 
-/// Reads `Shift+Cmd+4` into Carbon's key code and modifier mask.
+/// Reads `Shift+Cmd+4` into Carbon's key code and modifier mask. Compiled everywhere, so the settings
+/// window checks the same config on any system.
 pub fn parse(text: &str) -> Result<(u32, u32)> {
     let invalid = || format!("invalid region_hotkey in [tray]: {text}");
     let mut parts: Vec<String> = text.split('+').map(|p| p.trim().to_lowercase()).collect();

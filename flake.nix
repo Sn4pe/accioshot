@@ -17,14 +17,14 @@
       packages = forAllSystems (system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
-          editorUi = pkgs.buildNpmPackage {
-            pname = "accioshot-editor-ui";
+          webUi = pkgs.buildNpmPackage {
+            pname = "accioshot-web";
             version = "0.1.0";
             src = pkgs.lib.cleanSourceWith {
-              src = ./editor/ui;
+              src = ./ui/web;
               filter = path: _: !(builtins.elem (baseNameOf path) [ "node_modules" "dist" ]);
             };
-            npmDepsHash = "sha256-rUN6bkNJLtIwE6q6OEvhHRixxHCkvqYw69g6OzNu+78=";
+            npmDepsHash = "sha256-teUftjgEXqmD+tGXPRDPSlf4XqhqEWXD2RJ42rXVK+Q=";
             installPhase = "cp -r dist $out";
           };
         in {
@@ -40,7 +40,7 @@
             cargoTestFlags = [ "--workspace" ];
             nativeBuildInputs = nativeBuildInputs pkgs ++ [ pkgs.wrapGAppsHook3 ];
             buildInputs = buildInputs pkgs ++ editorInputs pkgs;
-            preBuild = "cp -r ${editorUi} editor/ui/dist";
+            preBuild = "cp -r ${webUi} ui/web/dist";
             postInstall = ''
               install -Dm644 contrib/accioshot.service $out/share/systemd/user/accioshot.service
               substituteInPlace $out/share/systemd/user/accioshot.service \
