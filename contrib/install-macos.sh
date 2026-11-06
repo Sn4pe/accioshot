@@ -12,11 +12,13 @@ cd "$(dirname "$0")/.."
 (cd editor/ui && npm ci --silent && npm run build --silent)
 cargo build --release --workspace
 TARGET="${CARGO_TARGET_DIR:-target}/release"
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+BUNDLE="$WORK/Accioshot.app"
 
 # Screen Recording follows the signature. Ad hoc signatures change with every build, this one stays.
 if ! security find-certificate -c "$IDENTITY" >/dev/null 2>&1; then
-    WORK=$(mktemp -d)
-    trap 'rm -rf "$WORK"' EXIT
+    echo "Signing may ask for your login keychain password. Choose Always Allow."
     PASSWORD=$(/usr/bin/openssl rand -hex 16)
     /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=$IDENTITY" \
         -addext "basicConstraints=critical,CA:false" \
@@ -30,13 +32,9 @@ if ! security find-certificate -c "$IDENTITY" >/dev/null 2>&1; then
     tccutil reset ScreenCapture "$LABEL" >/dev/null 2>&1 || true
 fi
 
-launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
-# One opened from Finder is not launchd's, and it would keep the lock.
-pkill -x accioshot 2>/dev/null || true
-rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS"
-cp "$TARGET/accioshot" "$TARGET/accioshot-editor" "$APP/Contents/MacOS/"
-cat > "$APP/Contents/Info.plist" <<EOF
+mkdir -p "$BUNDLE/Contents/MacOS"
+cp "$TARGET/accioshot" "$TARGET/accioshot-editor" "$BUNDLE/Contents/MacOS/"
+cat > "$BUNDLE/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -58,7 +56,13 @@ cat > "$APP/Contents/Info.plist" <<EOF
 </dict>
 </plist>
 EOF
-codesign --force --deep --sign "$IDENTITY" "$APP"
+codesign --force --deep --sign "$IDENTITY" "$BUNDLE"
+
+launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+# One opened from Finder is not launchd's, and it would keep the lock. Captures in progress stay.
+pkill -f '^([^ ]*/)?accioshot( daemon)?$' 2>/dev/null || true
+rm -rf "$APP"
+mv "$BUNDLE" "$APP"
 
 mkdir -p "$(dirname "$AGENT")" "$HOME/Library/Logs"
 cat > "$AGENT" <<EOF
@@ -79,6 +83,11 @@ cat > "$AGENT" <<EOF
     <dict>
         <key>Crashed</key>
         <true/>
+    </dict>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin</string>
     </dict>
     <key>StandardErrorPath</key>
     <string>$HOME/Library/Logs/accioshot.log</string>

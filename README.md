@@ -88,7 +88,8 @@ capture, so turn off whatever else uses that key, such as the system shortcut in
 Keyboard > Keyboard Shortcuts > Screenshots.
 
 Allow Accioshot in Screen Recording the first time it asks. The first install creates a local signing
-certificate in your login keychain, so updates keep the permission. Errors go to `~/Library/Logs/accioshot.log`. Quit it from the menu until the next
+certificate in your login keychain, so updates keep the permission. Run it from a terminal in your
+session: signing may ask for the keychain password, so choose Always Allow. Errors go to `~/Library/Logs/accioshot.log`. Quit it from the menu until the next
 login, or stop it with:
 
 ```sh

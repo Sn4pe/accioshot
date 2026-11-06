@@ -8,6 +8,7 @@ use crate::Result;
 #[cfg(target_os = "macos")]
 pub async fn send(summary: &str, body: &str, _image: Option<&Path>) -> Result<()> {
     let output = std::process::Command::new("osascript")
+        .env("LC_ALL", "en_US.UTF-8")
         .args([
             "-e",
             "on run argv",

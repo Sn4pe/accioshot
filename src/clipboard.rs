@@ -88,6 +88,7 @@ mod platform {
             .open(&path)?
             .write_all(png)?;
         let output = Command::new("osascript")
+            .env("LC_ALL", "en_US.UTF-8")
             .args([
                 "-e",
                 "on run argv",
