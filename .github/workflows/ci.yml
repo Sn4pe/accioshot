@@ -32,7 +32,7 @@ jobs:
         with:
           node-version: 22
       - run: npm ci && npm run build
-        working-directory: editor/ui
+        working-directory: ui/web
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
@@ -48,7 +48,7 @@ jobs:
         with:
           node-version: 22
       - run: npm ci && npm test && npm run check && npm run build
-        working-directory: editor/ui
+        working-directory: ui/web
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace

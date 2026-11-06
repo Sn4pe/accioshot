@@ -2,10 +2,8 @@
 
 mod capture;
 mod clipboard;
-mod config;
 mod daemon;
 mod editor;
-mod history;
 mod names;
 mod notify;
 mod region;
@@ -14,22 +12,15 @@ mod syntax;
 
 use std::error::Error;
 use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
+use accioshot::{OPENER, Result, config, history};
 use clap::{Args, Parser, Subcommand};
 
 use config::{AfterCapture, AfterUpload, Config};
-
-pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
-
-const OPENER: &str = if cfg!(target_os = "macos") {
-    "open"
-} else {
-    "xdg-open"
-};
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -42,8 +33,13 @@ struct Cli {
 enum Command {
     /// Take a screenshot. Prints the URL if uploaded, otherwise the saved path.
     Capture(CaptureArgs),
-    /// Run the tray icon, on macOS also the Shift+Cmd+4 shortcut
+    /// Run the tray icon, on macOS also the region shortcut
     Daemon,
+    /// Copy text from stdin to the clipboard, or an image with --image
+    Copy {
+        #[arg(long, value_name = "PNG")]
+        image: Option<PathBuf>,
+    },
 }
 
 #[derive(Args)]
@@ -82,6 +78,7 @@ fn main() {
     let (result, is_capture) = match command() {
         Command::Capture(args) => (run(args), true),
         Command::Daemon => (daemon::run(), false),
+        Command::Copy { image } => (copy(image), false),
     };
     if let Err(error) = result {
         let message = error.to_string();
@@ -90,6 +87,18 @@ fn main() {
             notify_failure(&message);
         }
         std::process::exit(1);
+    }
+}
+
+/// Here and not in the UI: on Wayland the clipboard is served by a fork, and that process has threads.
+fn copy(image: Option<PathBuf>) -> Result<()> {
+    match image {
+        Some(path) => clipboard::copy_image(&fs::read(path)?),
+        None => {
+            let mut text = String::new();
+            io::stdin().read_to_string(&mut text)?;
+            clipboard::copy_text(text)
+        }
     }
 }
 

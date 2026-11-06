@@ -78,6 +78,42 @@ it cannot discard: closing it runs the other actions on the file as it is.
 command = "satty --filename {input} --output-filename {output} --early-exit"
 ```
 
+## History
+
+The tray's History opens every capture as a sheet of thumbnails, grouped by day. Search looks in names,
+links and dates. Select one to copy the image, path or URL, or open it. `Delete upload` opens the
+host's deletion page in your browser and nothing is sent by itself. `Remove` takes it out of the history,
+and it asks first whether to delete the file too. Thumbnails are kept in `~/.cache/accioshot/thumbs`, or
+`~/Library/Caches/accioshot/thumbs` on macOS. These are the defaults:
+
+```toml
+[history]
+thumbnail_width = 250
+thumbnail_height = 150
+max_items = 500
+filter_missing_files = false
+```
+
+## Settings
+
+The tray's Settings edits `config.toml` and keeps your comments and every key it does not show, such as
+the editor's colors and keys. Uploaders appear by name, and their files are never read. New captures
+use a saved change at once. Restart the tray for its folder and, on macOS, its shortcut.
+
+The editor, history and settings windows follow the theme:
+
+```toml
+[ui]
+theme = "system"   # or Catppuccin's "latte", "frappe", "macchiato", "mocha"
+```
+
+`system` means Latte on a light desktop and Mocha on a dark one. On Linux it looks at the background
+color GTK gives its windows, so themes that only recolor GTK, such as Stylix's, count too. A window
+keeps its theme until you reopen it.
+
+If the file is managed elsewhere and read-only, such as by Home Manager, saving reports the error and
+changes nothing.
+
 ## macOS app
 
 `contrib/install-macos.sh` builds `Accioshot.app`, installs it in `/Applications` and starts it now and
@@ -188,11 +224,11 @@ nix develop     # Linux, macOS only needs Rust and Node
 cargo build --release
 ```
 
-That builds `accioshot`. The editor is a separate binary so the CLI and tray do not load WebKit, and it
-must sit next to `accioshot`:
+That builds `accioshot`. The windows are a separate binary, `accioshot-ui`, so the CLI and tray do not
+load WebKit. It must sit next to `accioshot`:
 
 ```sh
-(cd editor/ui && npm ci && npm run build)
+(cd ui/web && npm ci && npm run build)
 cargo build --release --workspace
 ```
 

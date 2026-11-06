@@ -10,11 +10,8 @@ mod platform;
 #[path = "macos.rs"]
 mod platform;
 
-#[cfg(any(target_os = "macos", test))]
-mod hotkey;
-
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime};
 
@@ -84,6 +81,21 @@ fn spawn_capture(exe: PathBuf, mode: &'static str, delay: Duration) {
             .status();
         if let Err(error) = result {
             eprintln!("accioshot: cannot start a capture: {error}");
+        }
+    });
+}
+
+/// `window` is `history` or `settings`.
+fn spawn_ui(exe: &Path, window: &'static str) {
+    let ui = crate::editor::ui_binary(exe);
+    std::thread::spawn(move || {
+        let result = Command::new(ui)
+            .arg(window)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .status();
+        if let Err(error) = result {
+            eprintln!("accioshot: cannot open the {window} window: {error}");
         }
     });
 }

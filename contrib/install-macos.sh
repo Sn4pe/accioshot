@@ -9,7 +9,7 @@ DOMAIN="gui/$(id -u)"
 IDENTITY="Accioshot Local Signing"
 
 cd "$(dirname "$0")/.."
-(cd editor/ui && npm ci --silent && npm run build --silent)
+(cd ui/web && npm ci --silent && npm run build --silent)
 cargo build --release --workspace
 TARGET="${CARGO_TARGET_DIR:-target}/release"
 WORK=$(mktemp -d)
@@ -33,7 +33,7 @@ if ! security find-certificate -c "$IDENTITY" >/dev/null 2>&1; then
 fi
 
 mkdir -p "$BUNDLE/Contents/MacOS"
-cp "$TARGET/accioshot" "$TARGET/accioshot-editor" "$BUNDLE/Contents/MacOS/"
+cp "$TARGET/accioshot" "$TARGET/accioshot-ui" "$BUNDLE/Contents/MacOS/"
 cat > "$BUNDLE/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

@@ -59,6 +59,6 @@
     stroke: none;
   }
   .cut {
-    stroke: #2a2621;
+    stroke: var(--bar);
   }
 </style>

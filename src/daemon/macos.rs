@@ -18,7 +18,7 @@ use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, 
 
 use super::{
     HISTORY_POLL, MENU_CLOSE_DELAY, MODES, RECENT_COUNT, entry_label, entry_text, history_modified,
-    open, single_instance, spawn_capture,
+    open, single_instance, spawn_capture, spawn_ui,
 };
 use crate::config::Config;
 use crate::history::{self, Entry};
@@ -30,6 +30,8 @@ const EVENT_HOT_KEY_PRESSED: u32 = 5;
 const SIGNATURE: u32 = u32::from_be_bytes(*b"acct");
 const ICON_SIZE: u32 = 44;
 
+const HISTORY: &str = "history";
+const SETTINGS: &str = "settings";
 const OPEN_FOLDER: &str = "open-folder";
 const QUIT: &str = "quit";
 const RECENT_PREFIX: &str = "recent:";
@@ -142,7 +144,7 @@ pub fn run() -> Result<()> {
 
 fn icon() -> Result<Icon> {
     let image = image::load_from_memory_with_format(
-        include_bytes!("../../editor/icons/icon.png"),
+        include_bytes!("../../ui/icons/icon.png"),
         image::ImageFormat::Png,
     )?;
     let image = image
@@ -165,6 +167,8 @@ fn menu(recent: &[Entry]) -> Result<Menu> {
         submenu.append(&MenuItem::with_id(id, entry_label(entry), true, None))?;
     }
     menu.append(&submenu)?;
+    menu.append(&MenuItem::with_id(HISTORY, "History", true, None))?;
+    menu.append(&MenuItem::with_id(SETTINGS, "Settings", true, None))?;
     menu.append(&MenuItem::with_id(OPEN_FOLDER, "Open folder", true, None))?;
     menu.append(&PredefinedMenuItem::separator())?;
     menu.append(&MenuItem::with_id(QUIT, "Quit", true, None))?;
@@ -176,6 +180,10 @@ fn on_menu(id: &str) {
         capture(mode, MENU_CLOSE_DELAY);
     } else if id == QUIT {
         std::process::exit(0);
+    } else if id == HISTORY || id == SETTINGS {
+        if let Some(exe) = EXE.get() {
+            spawn_ui(exe, if id == HISTORY { HISTORY } else { SETTINGS });
+        }
     } else if id == OPEN_FOLDER {
         STATE.with_borrow(|state| {
             if let Some(state) = state {
@@ -214,7 +222,7 @@ fn register_shortcut(shortcut: &str) -> Result<()> {
     if shortcut.is_empty() {
         return Ok(());
     }
-    let (key, modifiers) = super::hotkey::parse(shortcut)?;
+    let (key, modifiers) = accioshot::hotkey::parse(shortcut)?;
     let pressed = EventTypeSpec {
         event_class: EVENT_CLASS_KEYBOARD,
         event_kind: EVENT_HOT_KEY_PRESSED,
