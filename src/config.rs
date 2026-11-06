@@ -35,6 +35,22 @@ pub struct Config {
     pub name_pattern: String,
     pub region: RegionConfig,
     pub editor: EditorConfig,
+    pub tray: TrayConfig,
+}
+
+/// Read on macOS only, on Linux the compositor owns global shortcuts.
+#[derive(Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TrayConfig {
+    pub region_hotkey: String,
+}
+
+impl Default for TrayConfig {
+    fn default() -> Self {
+        TrayConfig {
+            region_hotkey: "Shift+Cmd+4".to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -85,13 +101,22 @@ impl Default for Config {
             name_pattern: crate::names::DEFAULT_PATTERN.to_string(),
             region: RegionConfig::default(),
             editor: EditorConfig::default(),
+            tray: TrayConfig::default(),
         }
+    }
+}
+
+/// `~/.config` on macOS too, so the same files work on both systems.
+pub fn base_dir() -> Option<PathBuf> {
+    match cfg!(target_os = "macos") {
+        true => dirs::home_dir().map(|home| home.join(".config")),
+        false => dirs::config_dir(),
     }
 }
 
 impl Config {
     pub fn load() -> Result<Config> {
-        let dir = dirs::config_dir().ok_or("cannot find the config directory")?;
+        let dir = base_dir().ok_or("cannot find the config directory")?;
         Config::load_from(&dir.join("accioshot/config.toml"))
     }
 
@@ -161,6 +186,13 @@ mod tests {
         let config: Config =
             toml::from_str("[editor]\ncommand = \"satty\"\ntool = \"Arrow\"").unwrap();
         assert_eq!(config.editor.command, "satty");
+    }
+
+    #[test]
+    fn hotkey_can_change_or_be_empty() {
+        assert_eq!(Config::default().tray.region_hotkey, "Shift+Cmd+4");
+        let config: Config = toml::from_str("[tray]\nregion_hotkey = \"\"").unwrap();
+        assert_eq!(config.tray.region_hotkey, "");
     }
 
     #[test]

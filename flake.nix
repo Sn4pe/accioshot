@@ -1,5 +1,5 @@
 {
-  description = "Screenshot capture and upload tool for Linux";
+  description = "Screenshot capture and upload tool for Linux and macOS";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 

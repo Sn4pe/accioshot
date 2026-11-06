@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 mod capture;
+mod clipboard;
 mod config;
 mod daemon;
 mod editor;
@@ -12,19 +13,23 @@ mod sxcu;
 mod syntax;
 
 use std::error::Error;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
-use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand};
-use wl_clipboard_rs::copy::{MimeType, Options, Source};
 
 use config::{AfterCapture, AfterUpload, Config};
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
+
+const OPENER: &str = if cfg!(target_os = "macos") {
+    "open"
+} else {
+    "xdg-open"
+};
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -37,7 +42,7 @@ struct Cli {
 enum Command {
     /// Take a screenshot. Prints the URL if uploaded, otherwise the saved path.
     Capture(CaptureArgs),
-    /// Run the tray icon
+    /// Run the tray icon, on macOS also the Shift+Cmd+4 shortcut
     Daemon,
 }
 
@@ -61,8 +66,20 @@ struct CaptureArgs {
     delay: Option<f64>,
 }
 
+/// An app bundle gets opened without arguments, and that means running in the background.
+fn command() -> Command {
+    let in_bundle = cfg!(target_os = "macos")
+        && std::env::args_os().len() == 1
+        && std::env::current_exe()
+            .is_ok_and(|exe| exe.to_string_lossy().contains(".app/Contents/MacOS/"));
+    match in_bundle {
+        true => Command::Daemon,
+        false => Cli::parse().command,
+    }
+}
+
 fn main() {
-    let (result, is_capture) = match Cli::parse().command {
+    let (result, is_capture) = match command() {
         Command::Capture(args) => (run(args), true),
         Command::Daemon => (daemon::run(), false),
     };
@@ -284,9 +301,9 @@ fn run(args: CaptureArgs) -> Result<()> {
     if actions.copy_url
         && let Some(uploaded) = uploaded
     {
-        copy_to_clipboard(uploaded.url.into_bytes(), MimeType::Text)?;
+        clipboard::copy_text(uploaded.url)?;
     } else if actions.copy_image
-        && let Err(error) = copy_to_clipboard(png.clone(), MimeType::Specific("image/png".into()))
+        && let Err(error) = clipboard::copy_image(&png)
     {
         // After the editor's copy key the clipboard was the only destination.
         return Err(match saved {
@@ -303,42 +320,14 @@ fn open_url(url: &str) {
         eprintln!("accioshot: not opening a non-web URL: {url}");
         return;
     }
-    let spawned = std::process::Command::new("xdg-open")
+    let spawned = std::process::Command::new(OPENER)
         .arg(url)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn();
     if let Err(error) = spawned {
-        eprintln!("accioshot: cannot run xdg-open: {error}");
-    }
-}
-
-/// On Wayland the clipboard is served by whoever set it, so a detached child keeps doing that
-/// after we exit, until something else takes the clipboard. Same approach as wl-copy.
-fn copy_to_clipboard(data: Vec<u8>, mime: MimeType) -> Result<()> {
-    let mut options = Options::new();
-    options.foreground(true);
-    let prepared = options.prepare_copy(Source::Bytes(data.into()), mime)?;
-    let dev_null = File::options().read(true).write(true).open("/dev/null")?;
-
-    // SAFETY: the process is single threaded here, and the child only makes plain syscalls
-    // before serving.
-    match unsafe { libc::fork() } {
-        -1 => Err(io::Error::last_os_error().into()),
-        0 => {
-            // Inherited stdio would keep `url=$(accioshot ...)` waiting for the child.
-            unsafe {
-                libc::setsid();
-                for fd in 0..=2 {
-                    libc::dup2(dev_null.as_raw_fd(), fd);
-                }
-            }
-            let _ = std::env::set_current_dir("/");
-            let _ = prepared.serve();
-            std::process::exit(0);
-        }
-        _ => Ok(()),
+        eprintln!("accioshot: cannot run {OPENER}: {error}");
     }
 }
 

@@ -5,6 +5,7 @@ mod settings;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+#[cfg(target_os = "linux")]
 use gtk::prelude::GtkSettingsExt;
 use serde_json::Value;
 use settings::Settings;
@@ -12,10 +13,12 @@ use tauri::ipc::{InvokeBody, Request, Response};
 use tauri::{AppHandle, LogicalSize, Manager, State, WebviewWindow};
 
 const USAGE: &str = "usage: accioshot-editor <input.png> <output.png>";
+#[cfg(target_os = "linux")]
 const DMABUF_VARIABLE: &str = "WEBKIT_DISABLE_DMABUF_RENDERER";
 const FLOAT_SETTLE: Duration = Duration::from_millis(300);
 const COPY_ONLY_EXTENSION: &str = "copy-only";
 /// GTK counts it in 1024ths of a dot per inch.
+#[cfg(target_os = "linux")]
 const DEFAULT_FONT_DPI: i32 = 96 * 1024;
 
 struct Paths {
@@ -50,7 +53,9 @@ fn save_state(state: Value) -> Result<(), String> {
 }
 
 fn state_path() -> Option<PathBuf> {
-    Some(dirs::state_dir()?.join("accioshot/editor.json"))
+    // macOS has no state directory.
+    let dir = dirs::state_dir().or_else(dirs::data_dir)?;
+    Some(dir.join("accioshot/editor.json"))
 }
 
 /// Takes raw bytes, JSON would make a large image many times bigger.
@@ -95,6 +100,7 @@ fn discard(loaded: bool, app: AppHandle) {
 
 /// WebKit crashes with Wayland error 71 on NVIDIA unless its DMABUF renderer is off. Setting the
 /// variable yourself wins over this.
+#[cfg(target_os = "linux")]
 fn work_around_nvidia() {
     if std::env::var_os(DMABUF_VARIABLE).is_none() && Path::new("/proc/driver/nvidia").exists() {
         // SAFETY: called first thing in main, before any other thread exists.
@@ -104,6 +110,7 @@ fn work_around_nvidia() {
 
 /// GTK leaves this at -1 without the gsettings-desktop-schemas, and WebKit scales the page by it:
 /// everything lays out at a negative size and the window looks black.
+#[cfg(target_os = "linux")]
 fn work_around_missing_font_dpi() {
     if let Some(settings) = gtk::Settings::default()
         && settings.gtk_xft_dpi() <= 0
@@ -127,6 +134,7 @@ fn show_floating(window: WebviewWindow, size: LogicalSize<u32>) -> tauri::Result
 }
 
 fn main() {
+    #[cfg(target_os = "linux")]
     work_around_nvidia();
 
     let mut args = std::env::args_os().skip(1);
@@ -150,6 +158,7 @@ fn main() {
         })
         .manage(loaded)
         .setup(move |app| {
+            #[cfg(target_os = "linux")]
             work_around_missing_font_dpi();
             let window = app.get_webview_window("main").ok_or("no main window")?;
             let size = LogicalSize::new(width, height);
@@ -168,6 +177,11 @@ fn main() {
             } else {
                 window.show()?;
             }
+            // Started from a terminal instead of an app bundle, it would open behind everything.
+            #[cfg(target_os = "macos")]
+            app.get_webview_window("main")
+                .ok_or("no main window")?
+                .set_focus()?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
