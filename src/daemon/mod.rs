@@ -10,6 +10,9 @@ mod platform;
 #[path = "macos.rs"]
 mod platform;
 
+#[cfg(any(target_os = "macos", test))]
+mod hotkey;
+
 use std::fs::File;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};

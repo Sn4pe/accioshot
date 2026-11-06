@@ -35,6 +35,22 @@ pub struct Config {
     pub name_pattern: String,
     pub region: RegionConfig,
     pub editor: EditorConfig,
+    pub tray: TrayConfig,
+}
+
+/// Read on macOS only, on Linux the compositor owns global shortcuts.
+#[derive(Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TrayConfig {
+    pub region_hotkey: String,
+}
+
+impl Default for TrayConfig {
+    fn default() -> Self {
+        TrayConfig {
+            region_hotkey: "Shift+Cmd+4".to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -85,6 +101,7 @@ impl Default for Config {
             name_pattern: crate::names::DEFAULT_PATTERN.to_string(),
             region: RegionConfig::default(),
             editor: EditorConfig::default(),
+            tray: TrayConfig::default(),
         }
     }
 }
@@ -169,6 +186,13 @@ mod tests {
         let config: Config =
             toml::from_str("[editor]\ncommand = \"satty\"\ntool = \"Arrow\"").unwrap();
         assert_eq!(config.editor.command, "satty");
+    }
+
+    #[test]
+    fn hotkey_can_change_or_be_empty() {
+        assert_eq!(Config::default().tray.region_hotkey, "Shift+Cmd+4");
+        let config: Config = toml::from_str("[tray]\nregion_hotkey = \"\"").unwrap();
+        assert_eq!(config.tray.region_hotkey, "");
     }
 
     #[test]

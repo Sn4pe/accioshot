@@ -85,7 +85,13 @@ at every login. Run it again to update. It needs Rust and Node.
 
 It lives in the menu bar and works like the Linux tray below. It also makes `Shift+Cmd+4` take a region
 capture, so turn off whatever else uses that key, such as the system shortcut in System Settings >
-Keyboard > Keyboard Shortcuts > Screenshots.
+Keyboard > Keyboard Shortcuts > Screenshots. Or pick another key, restart the app, and leave it empty
+for none:
+
+```toml
+[tray]
+region_hotkey = "Ctrl+Option+4"   # Shift, Cmd, Ctrl, Option with a letter, a digit or F1 to F12
+```
 
 Allow Accioshot in Screen Recording the first time it asks. The first install creates a local signing
 certificate in your login keychain, so updates keep the permission. Run it from a terminal in your

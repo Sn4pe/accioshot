@@ -25,9 +25,6 @@ use crate::history::{self, Entry};
 use crate::{Result, clipboard};
 
 // Carbon's only API for global shortcuts, and it needs no Accessibility permission.
-const K_VK_ANSI_4: u32 = 21;
-const CMD_KEY: u32 = 256;
-const SHIFT_KEY: u32 = 512;
 const EVENT_CLASS_KEYBOARD: u32 = u32::from_be_bytes(*b"keyb");
 const EVENT_HOT_KEY_PRESSED: u32 = 5;
 const SIGNATURE: u32 = u32::from_be_bytes(*b"acct");
@@ -96,7 +93,7 @@ pub fn run() -> Result<()> {
     let app = NSApplication::sharedApplication(mtm);
     app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
 
-    register_shortcut()?;
+    register_shortcut(&config.tray.region_hotkey)?;
 
     let recent = history::recent(RECENT_COUNT);
     let tray = TrayIconBuilder::new()
@@ -213,7 +210,11 @@ extern "C" fn refresh_recent(_: CFRunLoopTimerRef, _: *mut c_void) {
     });
 }
 
-fn register_shortcut() -> Result<()> {
+fn register_shortcut(shortcut: &str) -> Result<()> {
+    if shortcut.is_empty() {
+        return Ok(());
+    }
+    let (key, modifiers) = super::hotkey::parse(shortcut)?;
     let pressed = EventTypeSpec {
         event_class: EVENT_CLASS_KEYBOARD,
         event_kind: EVENT_HOT_KEY_PRESSED,
@@ -237,16 +238,9 @@ fn register_shortcut() -> Result<()> {
             return Err(format!("cannot listen for the shortcut: error {status}").into());
         }
         let mut hot_key = ptr::null_mut();
-        let status = RegisterEventHotKey(
-            K_VK_ANSI_4,
-            CMD_KEY | SHIFT_KEY,
-            id,
-            target,
-            0,
-            &mut hot_key,
-        );
+        let status = RegisterEventHotKey(key, modifiers, id, target, 0, &mut hot_key);
         if status != 0 {
-            return Err(format!("cannot register Shift+Cmd+4: error {status}").into());
+            return Err(format!("cannot register {shortcut}: error {status}").into());
         }
     }
     Ok(())
