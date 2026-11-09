@@ -211,12 +211,16 @@ fn run(args: CaptureArgs) -> Result<()> {
 
     // Load first, a broken uploader should fail before the user picks a region.
     let mut uploader = actions.upload.as_deref().map(sxcu::load).transpose()?;
+    let Some(selecting) = daemon::lock("accioshot-capture.lock")? else {
+        return Ok(());
+    };
     std::thread::sleep(delay);
     // Before the selector or the editor take the focus.
     let window = names::needs_window(&config.name_pattern)
         .then(capture::active_window_names)
         .flatten();
     let mut png = runtime.block_on(capture::capture(args.mode, &config.region))?;
+    drop(selecting);
     let now = chrono::Local::now();
     let name_for = |png: &[u8]| {
         let (width, height) = names::png_size(png);

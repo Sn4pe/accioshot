@@ -34,15 +34,21 @@ const MODES: [(&str, &str); 5] = [
 
 /// Held until the process exits, the kernel releases it even after a crash.
 fn single_instance() -> Result<File> {
+    lock("accioshot.lock")?.ok_or_else(|| "accioshot daemon is already running".into())
+}
+
+pub(crate) fn lock(name: &str) -> Result<Option<File>> {
     // macOS has no runtime directory, and its temporary one is already per user.
     let dir = match cfg!(target_os = "macos") {
         true => std::env::temp_dir(),
         false => dirs::runtime_dir().ok_or("XDG_RUNTIME_DIR is not set")?,
     };
-    let file = File::create(dir.join("accioshot.lock"))?;
-    file.try_lock()
-        .map_err(|_| "accioshot daemon is already running")?;
-    Ok(file)
+    let file = File::create(dir.join(name))?;
+    match file.try_lock() {
+        Ok(()) => Ok(Some(file)),
+        Err(std::fs::TryLockError::WouldBlock) => Ok(None),
+        Err(std::fs::TryLockError::Error(error)) => Err(error.into()),
+    }
 }
 
 fn history_modified() -> Option<SystemTime> {
