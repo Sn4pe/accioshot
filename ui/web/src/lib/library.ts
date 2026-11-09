@@ -71,3 +71,17 @@ export function byDay(items: Item[], today = new Date()): Day[] {
   }
   return [...days].map(([label, items]) => ({ label, items }))
 }
+
+export type Pick = 'one' | 'toggle' | 'range'
+
+export function pick(selected: ReadonlySet<string>, order: string[], key: string, anchor: string | null, how: Pick): Set<string> {
+  if (how === 'toggle') {
+    const next = new Set(selected)
+    if (!next.delete(key)) next.add(key)
+    return next
+  }
+  const from = anchor === null ? -1 : order.indexOf(anchor)
+  const to = order.indexOf(key)
+  if (how === 'one' || from < 0 || to < 0) return new Set([key])
+  return new Set([...selected, ...order.slice(Math.min(from, to), Math.max(from, to) + 1)])
+}
