@@ -114,7 +114,9 @@ fn main() {
         std::process::exit(2);
     };
 
-    let mut builder = tauri::Builder::default().manage(WindowName(mode.name()));
+    let mut builder = tauri::Builder::default()
+        .plugin(tauri_plugin_drag::init())
+        .manage(WindowName(mode.name()));
     let (title, (width, height), floating) = match mode {
         Mode::Edit(paths) => {
             let settings = Settings::load().unwrap_or_else(|error| fail(error));
@@ -176,9 +178,11 @@ fn main() {
             editor::discard,
             history::history_items,
             history::thumbnail,
+            history::image,
             history::copy_entry,
             history::open_entry,
-            history::delete_entry,
+            history::edit_entry,
+            history::delete_entries,
             preferences::load_preferences,
             preferences::save_preferences,
             preferences::open_config,

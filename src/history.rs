@@ -55,17 +55,19 @@ fn append_to(path: &Path, entry: &Entry) -> Result<()> {
     Ok(())
 }
 
-/// Removes the entry, if it is still there. Damaged lines stay, they may be someone's only record.
-pub fn remove(entry: &Entry) -> Result<bool> {
-    remove_from(&path()?, entry)
+/// Removes the entries still there. Damaged lines stay, they may be someone's only record.
+pub fn remove(entries: &[Entry]) -> Result<bool> {
+    remove_from(&path()?, entries)
 }
 
-fn remove_from(path: &Path, entry: &Entry) -> Result<bool> {
+fn remove_from(path: &Path, entries: &[Entry]) -> Result<bool> {
     let _lock = lock(path)?;
     let text = std::fs::read_to_string(path)?;
     let kept: String = text
         .split_inclusive('\n')
-        .filter(|line| serde_json::from_str::<Entry>(line).ok().as_ref() != Some(entry))
+        .filter(|line| {
+            serde_json::from_str::<Entry>(line).map_or(true, |entry| !entries.contains(&entry))
+        })
         .collect();
     if kept.len() == text.len() {
         return Ok(false);
@@ -152,8 +154,8 @@ mod tests {
         }
         let mut handle = OpenOptions::new().append(true).open(&file).unwrap();
         handle.write_all(b"{\"time\":\"cut\n").unwrap();
-        assert!(remove_from(&file, &entry("a")).unwrap());
-        assert!(!remove_from(&file, &entry("a")).unwrap());
+        assert!(remove_from(&file, &[entry("a")]).unwrap());
+        assert!(!remove_from(&file, &[entry("a")]).unwrap());
         let text = std::fs::read_to_string(&file).unwrap();
         assert!(text.ends_with("{\"time\":\"cut\n") && !text.contains("\"url\":\"a\""));
         let mode = std::fs::metadata(&file).unwrap().permissions().mode();
@@ -174,9 +176,9 @@ mod tests {
             })
         };
         for index in 0..100 {
-            let _ = remove_from(&file, &entry(&format!("x{index}")));
+            let _ = remove_from(&file, &[entry(&format!("x{index}"))]);
         }
-        remove_from(&file, &entry("gone")).unwrap();
+        remove_from(&file, &[entry("gone")]).unwrap();
         writer.join().unwrap();
         assert_eq!(recent_from(&file, usize::MAX).len(), 200);
         std::fs::remove_dir_all(file.parent().unwrap()).unwrap();

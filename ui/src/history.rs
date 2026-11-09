@@ -7,6 +7,7 @@ use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use accioshot::config::HistoryConfig;
 use accioshot::history::{self, Entry};
@@ -151,6 +152,15 @@ fn store(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 #[tauri::command(async)]
+pub fn image(entry: Entry, library: State<Library>) -> Result<Response, String> {
+    library.check(&entry)?;
+    let path = entry.path.as_deref().ok_or("this capture has no file")?;
+    std::fs::read(path)
+        .map(Response::new)
+        .map_err(|error| format!("cannot read {}: {error}", path.display()))
+}
+
+#[tauri::command(async)]
 pub fn copy_entry(entry: Entry, part: Part, library: State<Library>) -> Result<(), String> {
     library.check(&entry)?;
     match part {
@@ -191,6 +201,41 @@ fn copy(args: &[&std::ffi::OsStr], text: &str) -> Result<(), String> {
     }
 }
 
+static EDITS: AtomicUsize = AtomicUsize::new(0);
+
+#[tauri::command(async)]
+pub fn edit_entry(entry: Entry, library: State<Library>) -> Result<(), String> {
+    library.check(&entry)?;
+    let path = entry
+        .path
+        .as_deref()
+        .filter(|path| path.exists())
+        .ok_or("this capture has no file")?;
+    let name = path.file_name().ok_or("this capture has no file")?;
+    let edit = EDITS.fetch_add(1, Ordering::Relaxed);
+    let output = path.with_file_name(format!(".{}.{edit}.editing.png", name.to_string_lossy()));
+    let copy_only = output.with_extension("copy-only");
+    Command::new(crate::sibling("accioshot-ui"))
+        .arg("edit")
+        .arg(path)
+        .arg(&output)
+        .status()
+        .map_err(|error| format!("cannot open the editor: {error}"))?;
+    let result = if !output.exists() {
+        Ok(())
+    } else if library.check(&entry).is_err() || !path.exists() {
+        Err("the capture was removed while it was being edited".to_string())
+    } else if copy_only.exists() {
+        copy(&[std::ffi::OsStr::new("--image"), output.as_os_str()], "")
+    } else {
+        std::fs::rename(&output, path)
+            .map_err(|error| format!("cannot save {}: {error}", path.display()))
+    };
+    let _ = std::fs::remove_file(&output);
+    let _ = std::fs::remove_file(&copy_only);
+    result
+}
+
 #[tauri::command]
 pub fn open_entry(entry: Entry, part: Part, library: State<Library>) -> Result<(), String> {
     library.check(&entry)?;
@@ -228,38 +273,46 @@ fn is_web_url(url: &str) -> bool {
 
 /// The file goes first: if that fails the entry stays, so the delete can be tried again.
 #[tauri::command]
-pub fn delete_entry(
-    entry: Entry,
+pub fn delete_entries(
+    entries: Vec<Entry>,
     delete_file: bool,
     library: State<Library>,
-) -> Result<(), String> {
-    library.check(&entry)?;
-    if let Some(path) = entry.path.as_deref() {
-        let size = (
-            library.config.thumbnail_width,
-            library.config.thumbnail_height,
-        );
-        if let Ok(file) = std::fs::metadata(path)
-            && let Some(cached) = thumbnail_path(path, &file, size)
-        {
-            let _ = std::fs::remove_file(cached);
-        }
-        if delete_file {
-            match std::fs::remove_file(path) {
-                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-                    return Err(format!("cannot delete {}: {error}", path.display()));
+) -> Result<Vec<String>, String> {
+    for entry in &entries {
+        library.check(entry)?;
+    }
+    let size = (
+        library.config.thumbnail_width,
+        library.config.thumbnail_height,
+    );
+    let mut failures = Vec::new();
+    let mut removable = Vec::new();
+    for entry in entries {
+        if let Some(path) = entry.path.as_deref() {
+            if let Ok(file) = std::fs::metadata(path)
+                && let Some(cached) = thumbnail_path(path, &file, size)
+            {
+                let _ = std::fs::remove_file(cached);
+            }
+            if delete_file {
+                match std::fs::remove_file(path) {
+                    Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                        failures.push(format!("cannot delete {}: {error}", path.display()));
+                        continue;
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         }
+        removable.push(entry);
     }
-    history::remove(&entry).map_err(|error| error.to_string())?;
+    history::remove(&removable).map_err(|error| error.to_string())?;
     library
         .entries
         .lock()
         .map_err(|e| e.to_string())?
-        .retain(|e| *e != entry);
-    Ok(())
+        .retain(|e| !removable.contains(e));
+    Ok(failures)
 }
 
 #[cfg(test)]

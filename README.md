@@ -91,7 +91,15 @@ command = "satty --filename {input} --output-filename {output} --early-exit"
 The tray's History opens every capture as a sheet of thumbnails, grouped by day. Search looks in names,
 links and dates. Select one to copy the image, path or URL, or open it. `Delete upload` opens the
 host's deletion page in your browser and nothing is sent by itself. `Remove` takes it out of the history,
-and it asks first whether to delete the file too. Thumbnails are kept in `~/.cache/accioshot/thumbs`, or
+and it asks first whether to delete the file too. `Edit` reopens it in the built-in editor: saving
+replaces the file, copying leaves it as it was.
+
+Ctrl or Cmd+click adds to the selection, Shift+click selects a range and Ctrl or Cmd+A selects every
+capture shown, then `Remove` or Delete acts on all of them. `Clean up N missing` selects the entries whose
+file is gone. Drag captures to another app to drop the files there. Space shows a quick preview and a double click opens the viewer.
+Both zoom like the editor: Ctrl or Cmd and the wheel around the pointer, Ctrl or Cmd `+`, `-` and `0`,
+a click switches between fitting and 100 %, and dragging or the wheel pans. The arrows go to the
+previous or next capture and every action and shortcut keeps working. Thumbnails are kept in `~/.cache/accioshot/thumbs`, or
 `~/Library/Caches/accioshot/thumbs` on macOS. These are the defaults:
 
 ```toml

@@ -1,9 +1,10 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core'
-  import { onMount } from 'svelte'
+  import { Channel, invoke } from '@tauri-apps/api/core'
+  import { onMount, tick } from 'svelte'
   import Frame from './Frame.svelte'
-  import { byDay, entryKey, fileName, matches, title, unique, type Entry, type Item } from './lib/library'
+  import Viewer from './Viewer.svelte'
+  import { byDay, entryKey, fileName, matches, pick, title, unique, type Entry, type Item } from './lib/library'
 
   type Part = 'image' | 'path' | 'url' | 'deletion_url' | 'file' | 'folder'
 
@@ -13,15 +14,23 @@
   let width = $state(250)
   let height = $state(150)
   let query = $state('')
-  let selected = $state.raw<Entry | null>(null)
+  let selected = $state.raw<Set<string>>(new Set())
+  let anchor: string | null = null
   let confirming = $state(false)
   let note = $state('')
   let failure = $state('')
   let noteTimer: ReturnType<typeof setTimeout> | undefined
+  let revision = $state(0)
+  let viewing = $state<'preview' | 'full' | null>(null)
+  let swallowSpace = false
 
   const shown = $derived((items ?? []).filter((item) => matches(item.entry, query.trim())))
   const days = $derived(byDay(shown))
-  const current = $derived(selected && (items ?? []).find((item) => same(item.entry, selected!)))
+  const chosen = $derived((items ?? []).filter((item) => selected.has(entryKey(item.entry))))
+  const current = $derived(chosen.length === 1 ? chosen[0] : null)
+  const order = $derived(days.flatMap((day) => day.items))
+  const position = $derived(current ? order.findIndex((item) => same(item.entry, current.entry)) : -1)
+  const missing = $derived((items ?? []).filter((item) => item.entry.path && !item.exists))
 
   function same(a: Entry, b: Entry): boolean {
     return entryKey(a) === entryKey(b)
@@ -64,43 +73,127 @@
     }
   }
 
-  function openDefault(item: Item) {
-    selected = item.entry
-    if (item.exists) open('file')
-    else if (item.entry.url) open('url')
-  }
-
-  async function remove(deleteFile: boolean) {
+  async function edit() {
     if (!current) return
-    const entry = current.entry
     try {
-      await invoke('delete_entry', { entry, deleteFile })
-      items = (items ?? []).filter((item) => !same(item.entry, entry))
-      selected = null
-      confirming = false
-      say(deleteFile ? 'Deleted' : 'Removed from history')
+      await invoke('edit_entry', { entry: current.entry })
+      revision++
+      await refresh()
     } catch (error) {
-      confirming = false
       failure = String(error)
     }
   }
 
-  function select(entry: Entry) {
-    selected = selected && same(selected, entry) ? null : entry
+  async function drag(item: Item, icon: string) {
+    const group = selected.has(entryKey(item.entry)) ? chosen : [item]
+    const paths = group.filter((one) => one.exists).map((one) => one.entry.path!)
+    try {
+      await invoke('plugin:drag|start_drag', { item: paths, image: icon, options: { mode: 'copy' }, onEvent: new Channel() })
+    } catch (error) {
+      failure = String(error)
+    }
+  }
+
+  $effect(() => {
+    if (!current) viewing = null
+  })
+
+  function view(item: Item) {
+    selected = new Set([entryKey(item.entry)])
+    anchor = entryKey(item.entry)
+    viewing = 'full'
+  }
+
+  function step(by: number) {
+    const next = order[position < 0 ? 0 : Math.min(Math.max(position + by, 0), order.length - 1)]
+    if (!next) return
+    selected = new Set([entryKey(next.entry)])
+    anchor = entryKey(next.entry)
+    confirming = false
+    tick().then(() => document.querySelector('.frame.selected')?.scrollIntoView({ block: 'nearest' }))
+  }
+
+  async function remove(deleteFile: boolean) {
+    if (!chosen.length) return
+    const entries = chosen.map((item) => item.entry)
+    const next = current && (order[position + 1] ?? order[position - 1])
+    confirming = false
+    try {
+      const failures = await invoke<string[]>('delete_entries', { entries, deleteFile })
+      selected = new Set()
+      await refresh()
+      if (viewing && next) selected = new Set([entryKey(next.entry)])
+      if (failures.length) failure = failures.join('\n')
+      else say(deleteFile ? 'Deleted' : 'Removed from history')
+    } catch (error) {
+      failure = String(error)
+    }
+  }
+
+  function select(entry: Entry, event: MouseEvent) {
+    const key = entryKey(entry)
+    const how = event.metaKey || event.ctrlKey ? 'toggle' : event.shiftKey ? 'range' : 'one'
+    const keys = order.map((item) => entryKey(item.entry))
+    selected = how === 'one' && current && same(current.entry, entry) ? new Set() : pick(selected, keys, key, anchor, how)
+    if (how !== 'range' || anchor === null) anchor = key
     confirming = false
     failure = ''
   }
 
+  function cleanUp() {
+    selected = new Set(missing.map((item) => entryKey(item.entry)))
+    confirming = true
+    failure = ''
+  }
+
   function onKeyDown(event: KeyboardEvent) {
+    swallowSpace = false
+    if (event.key === ' ' && event.target instanceof HTMLInputElement) return
+    if (event.key === ' ' && event.repeat) {
+      event.preventDefault()
+      return
+    }
+    if (viewing) {
+      if (event.key === 'Escape' && !confirming) {
+        viewing = null
+        return
+      }
+      if (event.key === ' ') {
+        event.preventDefault()
+        swallowSpace = true
+        if (viewing === 'preview') viewing = null
+        return
+      }
+    }
     if (event.key === 'Escape') {
       if (confirming) confirming = false
       else if (query) query = ''
-      else selected = null
+      else selected = new Set()
       return
     }
-    if (event.target instanceof HTMLInputElement || !current) return
-    if (event.key === 'Delete') confirming = true
-    else if (event.key === 'Enter' && event.ctrlKey) openDefault(current)
+    if (event.target instanceof HTMLInputElement) return
+    if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
+      event.preventDefault()
+      selected = new Set(shown.map((item) => entryKey(item.entry)))
+      return
+    }
+    if (chosen.length && (event.key === 'Delete' || event.key === 'Backspace')) confirming = true
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault()
+      step(event.key === 'ArrowLeft' ? -1 : 1)
+      return
+    }
+    if (!current) return
+    if (event.key === ' ') {
+      event.preventDefault()
+      swallowSpace = true
+      viewing = 'preview'
+      return
+    }
+    else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      if (current.exists) open('file')
+      else if (current.entry.url) open('url')
+    }
     else if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
       if (current.exists) copy('image', 'Image copied')
       else if (current.entry.url) copy('url', 'URL copied')
@@ -118,40 +211,59 @@
   })
 </script>
 
-<svelte:window onkeydown={onKeyDown} />
+<svelte:window
+  onkeydown={onKeyDown}
+  onkeyup={(event) => event.key === ' ' && swallowSpace && event.preventDefault()}
+/>
 
 <div class="history">
   <header>
     <input type="search" placeholder="Search names, links and dates" aria-label="Search" bind:value={query} />
     {#if items}
+      {#if missing.length}
+        <button class="quiet" onclick={cleanUp}>Clean up {missing.length} missing</button>
+      {/if}
       <span class="count">{query.trim() ? `${shown.length} of ${items.length}` : items.length}</span>
     {/if}
   </header>
 
-  <main>
-    {#if items && !items.length}
-      <p class="empty">No captures yet.</p>
-    {:else if items && !shown.length}
-      <p class="empty">Nothing matches.</p>
+  <div class="body">
+    <main>
+      {#if items && !items.length}
+        <p class="empty">No captures yet.</p>
+      {:else if items && !shown.length}
+        <p class="empty">Nothing matches.</p>
+      {/if}
+      {#each days as day}
+        <section>
+          <h2>{day.label}</h2>
+          <div class="sheet" style:grid-template-columns="repeat(auto-fill, {width + 12}px)">
+            {#each day.items as item (`${revision}:${entryKey(item.entry)}`)}
+              <Frame
+                {item}
+                {width}
+                {height}
+                selected={selected.has(entryKey(item.entry))}
+                onselect={(event) => select(item.entry, event)}
+                onopen={() => view(item)}
+                ondrag={(icon) => drag(item, icon)}
+              />
+            {/each}
+          </div>
+        </section>
+      {/each}
+    </main>
+    {#if viewing && current}
+      <Viewer
+        item={current}
+        {revision}
+        position={position + 1}
+        total={order.length}
+        preview={viewing === 'preview'}
+        onclose={() => (viewing = null)}
+      />
     {/if}
-    {#each days as day}
-      <section>
-        <h2>{day.label}</h2>
-        <div class="sheet" style:grid-template-columns="repeat(auto-fill, {width + 12}px)">
-          {#each day.items as item (entryKey(item.entry))}
-            <Frame
-              {item}
-              {width}
-              {height}
-              selected={selected !== null && same(selected, item.entry)}
-              onselect={() => select(item.entry)}
-              onopen={() => openDefault(item)}
-            />
-          {/each}
-        </div>
-      </section>
-    {/each}
-  </main>
+  </div>
 
   {#if failure}
     <p class="failure" role="alert">{failure}</p>
@@ -177,6 +289,7 @@
           {#if current.exists}
             <button class="quiet" onclick={() => copy('image', 'Image copied')}>Copy image</button>
             <button class="quiet" onclick={() => copy('path', 'Path copied')}>Copy path</button>
+            <button class="quiet" onclick={edit}>Edit</button>
             <button class="quiet" onclick={() => open('file')}>Open</button>
             <button class="quiet" onclick={() => open('folder')}>Folder</button>
           {/if}
@@ -189,6 +302,25 @@
               Delete upload
             </button>
           {/if}
+          <button class="quiet" onclick={() => (confirming = true)}>Remove</button>
+        {/if}
+      </div>
+    </footer>
+  {:else if chosen.length > 1}
+    <footer>
+      <div class="detail">
+        <strong>{chosen.length} selected</strong>
+      </div>
+      <div class="actions">
+        {#if confirming}
+          <span class="question">Remove {chosen.length} captures?</span>
+          <button class="quiet" onclick={() => (confirming = false)}>Keep</button>
+          <button class="quiet" onclick={() => remove(false)}>From history only</button>
+          {#if chosen.some((item) => item.exists)}
+            <button class="primary danger" onclick={() => remove(true)}>Delete the files too</button>
+          {/if}
+        {:else}
+          <span class="said" aria-live="polite">{note}</span>
           <button class="quiet" onclick={() => (confirming = true)}>Remove</button>
         {/if}
       </div>
@@ -230,6 +362,13 @@
     margin-left: auto;
     color: var(--muted);
     font-variant-numeric: tabular-nums;
+  }
+  .body {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
   }
   main {
     flex: 1;

@@ -11,13 +11,15 @@
     selected,
     onselect,
     onopen,
+    ondrag,
   }: {
     item: Item
     width: number
     height: number
     selected: boolean
-    onselect: () => void
+    onselect: (event: MouseEvent) => void
     onopen: () => void
+    ondrag: (icon: string) => void
   } = $props()
 
   let src = $state('')
@@ -42,11 +44,29 @@
     return () => observer.disconnect()
   }
 
+  const BLANK = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+  let blob: Blob | null = null
+
+  function iconUrl(): Promise<string> {
+    return new Promise((resolve) => {
+      if (!blob) return resolve(BLANK)
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.readAsDataURL(blob)
+    })
+  }
+
+  async function drag(event: DragEvent) {
+    event.preventDefault()
+    ondrag(await iconUrl())
+  }
+
   async function load() {
     if (!entry.path || !item.exists) return
     try {
       const bytes = await invoke<ArrayBuffer>('thumbnail', { entry })
-      src = URL.createObjectURL(new Blob([bytes], { type: 'image/png' }))
+      blob = new Blob([bytes], { type: 'image/png' })
+      src = URL.createObjectURL(blob)
     } catch {
       failed = true
     }
@@ -63,6 +83,8 @@
   aria-pressed={selected}
   onclick={onselect}
   ondblclick={onopen}
+  draggable={item.exists}
+  ondragstart={drag}
   {@attach whenVisible}
 >
   <span class="plate" style:width="{width}px" style:height="{height}px">
