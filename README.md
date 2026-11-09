@@ -57,6 +57,9 @@ step_size = 32
 blur_strength = 12
 pixel_size = 14
 remember_last = true    # reopen with the last tool, colors and sizes
+initial_zoom = "fit"    # or a scale, 1 is 100 %
+zoom_step = 1.25        # factor per zoom step
+max_zoom = 16
 floating = true         # ask the compositor to float the window
 width = 1280
 height = 800
@@ -66,8 +69,13 @@ save = "ctrl+enter"
 redo = "ctrl+shift+z, ctrl+y"
 ```
 
-Actions in `[editor.keys]` are the tool names plus `undo`, `redo`, `delete`, `save`, `copy` and
-`discard`.
+Actions in `[editor.keys]` are the tool names plus `undo`, `redo`, `delete`, `save`, `copy`,
+`discard`, `zoom_in`, `zoom_out`, `zoom_fit`, `zoom_actual`, `pan` and `move_left`, `move_right`,
+`move_up`, `move_down`.
+
+Ctrl and the wheel zoom around the pointer, the wheel scrolls and Shift scrolls sideways. The middle
+button drags the view, and so does the left one while `pan` (Space) is held. The move keys nudge the
+selection by 1 pixel, 10 with Shift, and a run of them is one undo step.
 
 To use another editor, set `command` to a program line with `{input}` and `{output}`. No output means
 discarded and a failed exit is an error. Without `{output}` it must edit `{input}` in place, and then

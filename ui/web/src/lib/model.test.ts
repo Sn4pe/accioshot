@@ -152,3 +152,37 @@ describe('keys', () => {
     expect(keymap({ Arrow: '' }).get('a')).toBeUndefined()
   })
 })
+
+describe('zoom and move keys', () => {
+  it('parses the + key', () => {
+    expect(normalizeCombo('ctrl++')).toBe('ctrl++')
+    expect(normalizeCombo('Shift + Ctrl ++')).toBe('ctrl+shift++')
+    expect(normalizeCombo('+')).toBe('+')
+    expect(keymap({}).get('ctrl++')).toBe('zoom_in')
+  })
+
+  it('names the space bar', () => {
+    const combo = eventCombo({ key: ' ', ctrlKey: false, metaKey: false, altKey: false, shiftKey: false })
+    expect(combo).toBe('space')
+    expect(keymap({}).get(combo)).toBe('pan')
+  })
+
+  it('moves with and without Shift', () => {
+    const map = keymap({})
+    expect(map.get('arrowleft')).toBe('move_left')
+    expect(map.get('shift+arrowleft')).toBe('move_left')
+  })
+})
+
+describe('History.replace', () => {
+  it('changes the state without an undo step', () => {
+    const history = new History()
+    const first = { annotations: [shape('Rectangle')], crop: null }
+    const moved = { annotations: [translated(shape('Rectangle'), 1, 0)], crop: null }
+    history.commit(first)
+    history.replace(moved)
+    expect(history.doc).toBe(moved)
+    history.undo()
+    expect(history.doc.annotations).toEqual([])
+  })
+})
