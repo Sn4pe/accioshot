@@ -253,7 +253,7 @@ pub fn delete_entry(
             }
         }
     }
-    history::remove(&entry).map_err(|error| error.to_string())?;
+    history::remove(std::slice::from_ref(&entry)).map_err(|error| error.to_string())?;
     library
         .entries
         .lock()
