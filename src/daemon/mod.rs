@@ -13,6 +13,7 @@ mod platform;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
 pub use platform::run;
@@ -91,20 +92,48 @@ fn spawn_capture(exe: PathBuf, mode: &'static str, delay: Duration) {
     });
 }
 
+static OPEN_WINDOWS: Mutex<Vec<(&'static str, u32)>> = Mutex::new(Vec::new());
+
 /// `window` is `history` or `settings`.
 fn spawn_ui(exe: &Path, window: &'static str) {
-    let ui = crate::editor::ui_binary(exe);
+    let mut open = OPEN_WINDOWS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    if let Some(&(_, pid)) = open.iter().find(|(name, _)| *name == window) {
+        raise(pid);
+        return;
+    }
+    let mut child = match Command::new(crate::editor::ui_binary(exe))
+        .arg(window)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(error) => return eprintln!("accioshot: cannot open the {window} window: {error}"),
+    };
+    let pid = child.id();
+    open.push((window, pid));
     std::thread::spawn(move || {
-        let result = Command::new(ui)
-            .arg(window)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .status();
-        if let Err(error) = result {
-            eprintln!("accioshot: cannot open the {window} window: {error}");
-        }
+        let _ = child.wait();
+        OPEN_WINDOWS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .retain(|&(_, open_pid)| open_pid != pid);
     });
 }
+
+#[cfg(target_os = "macos")]
+fn raise(pid: u32) {
+    use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
+    let Ok(pid) = i32::try_from(pid) else { return };
+    if let Some(app) = NSRunningApplication::runningApplicationWithProcessIdentifier(pid) {
+        app.activateWithOptions(NSApplicationActivationOptions::ActivateAllWindows);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn raise(_pid: u32) {}
 
 fn open(target: &std::ffi::OsStr) {
     let target = target.to_os_string();
