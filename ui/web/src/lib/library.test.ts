@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest'
-import { byDay, matches, title, unique, type Entry, type Item } from './library'
+import { byDay, matches, pick, title, unique, type Entry, type Item } from './library'
 
 const entry = (over: Partial<Entry>): Entry => ({
   time: '2026-11-06T10:00:00+01:00',
@@ -78,5 +78,17 @@ describe('byDay', () => {
       ['Today', 2],
       ['Unknown date', 1],
     ])
+  })
+})
+
+describe('pick', () => {
+  const order = ['a', 'b', 'c', 'd']
+
+  it('selects one, toggles, and ranges from the anchor either way', () => {
+    expect([...pick(new Set(['a', 'b']), order, 'c', 'a', 'one')]).toEqual(['c'])
+    expect([...pick(new Set(['a']), order, 'c', 'a', 'toggle')].sort()).toEqual(['a', 'c'])
+    expect([...pick(new Set(['a', 'c']), order, 'c', 'a', 'toggle')]).toEqual(['a'])
+    expect([...pick(new Set(['d']), order, 'b', 'd', 'range')].sort()).toEqual(['b', 'c', 'd'])
+    expect([...pick(new Set(), order, 'b', null, 'range')]).toEqual(['b'])
   })
 })
