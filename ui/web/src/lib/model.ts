@@ -227,9 +227,35 @@ export class History {
     this.past.push(this.doc)
     this.doc = next
   }
+
+  /** Changes the current state without a new undo step. */
+  replace(doc: Doc) {
+    this.doc = doc
+  }
 }
 
-export type Action = Tool | 'undo' | 'redo' | 'delete' | 'save' | 'copy' | 'discard'
+export type Move = 'move_left' | 'move_right' | 'move_up' | 'move_down'
+export type Action =
+  | Tool
+  | Move
+  | 'undo'
+  | 'redo'
+  | 'delete'
+  | 'save'
+  | 'copy'
+  | 'discard'
+  | 'zoom_in'
+  | 'zoom_out'
+  | 'zoom_fit'
+  | 'zoom_actual'
+  | 'pan'
+
+export const MOVES: Record<Move, Point> = {
+  move_left: { x: -1, y: 0 },
+  move_right: { x: 1, y: 0 },
+  move_up: { x: 0, y: -1 },
+  move_down: { x: 0, y: 1 },
+}
 
 export const DEFAULT_KEYS: Record<Action, string> = {
   Select: 'v',
@@ -250,11 +276,26 @@ export const DEFAULT_KEYS: Record<Action, string> = {
   save: 'ctrl+s',
   copy: 'ctrl+c',
   discard: 'escape',
+  // A US layout sends + with Shift, a Spanish one without.
+  zoom_in: 'ctrl++, ctrl+shift++, ctrl+=',
+  zoom_out: 'ctrl+-',
+  zoom_fit: 'ctrl+0',
+  zoom_actual: 'ctrl+1',
+  // Held down, the left button drags the view.
+  pan: 'space',
+  move_left: 'arrowleft, shift+arrowleft',
+  move_right: 'arrowright, shift+arrowright',
+  move_up: 'arrowup, shift+arrowup',
+  move_down: 'arrowdown, shift+arrowdown',
 }
 
 export function normalizeCombo(combo: string): string {
-  const parts = combo.toLowerCase().split('+').map((part) => part.trim())
-  const key = parts.pop() ?? ''
+  const lower = combo.toLowerCase().trim()
+  // The + key itself, as in ctrl++.
+  const plus = lower === '+' || lower.endsWith('++')
+  const parts = (plus ? lower.slice(0, -1) : lower).split('+').map((part) => part.trim())
+  const last = parts.pop() ?? ''
+  const key = plus ? '+' : last
   const order = ['ctrl', 'alt', 'shift'].filter((modifier) => parts.includes(modifier))
   return [...order, key].join('+')
 }
@@ -264,7 +305,7 @@ export function eventCombo(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaK
   if (event.ctrlKey || event.metaKey) parts.push('ctrl')
   if (event.altKey) parts.push('alt')
   if (event.shiftKey) parts.push('shift')
-  parts.push(event.key.toLowerCase())
+  parts.push(event.key === ' ' ? 'space' : event.key.toLowerCase())
   return parts.join('+')
 }
 

@@ -5,6 +5,13 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(untagged)]
+pub enum Zoom {
+    Scale(f64),
+    Named(String),
+}
+
 /// The [editor] table of config.toml. `command` belongs to accioshot and is only accepted here so
 /// typos in the rest can be rejected.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -22,6 +29,11 @@ pub struct Settings {
     pub blur_strength: f64,
     pub pixel_size: f64,
     pub remember_last: bool,
+    /// "fit" or a scale, 1 is 100 %.
+    pub initial_zoom: Zoom,
+    /// Factor per zoom step.
+    pub zoom_step: f64,
+    pub max_zoom: f64,
     pub floating: bool,
     pub width: u32,
     pub height: u32,
@@ -47,6 +59,9 @@ impl Default for Settings {
             blur_strength: 12.0,
             pixel_size: 14.0,
             remember_last: true,
+            initial_zoom: Zoom::Named("fit".to_string()),
+            zoom_step: 1.25,
+            max_zoom: 16.0,
             floating: true,
             width: 1280,
             height: 800,
@@ -87,6 +102,17 @@ impl Settings {
         if settings.colors.is_empty() {
             return Err("[editor] colors cannot be empty".to_string());
         }
+        match &settings.initial_zoom {
+            Zoom::Scale(scale) if *scale > 0.0 => {}
+            Zoom::Named(name) if name == "fit" => {}
+            _ => return Err("[editor] initial_zoom must be \"fit\" or a scale above 0".to_string()),
+        }
+        if settings.zoom_step <= 1.0 {
+            return Err("[editor] zoom_step must be above 1".to_string());
+        }
+        if settings.max_zoom < 1.0 {
+            return Err("[editor] max_zoom cannot be below 1".to_string());
+        }
         Ok(settings)
     }
 }
@@ -114,6 +140,21 @@ mod tests {
     #[test]
     fn typos_are_rejected() {
         assert!(Settings::parse("[editor]\nfont_sizes = 3").is_err());
+    }
+
+    #[test]
+    fn initial_zoom_takes_fit_or_a_scale() {
+        let settings = Settings::parse("[editor]\ninitial_zoom = 2").unwrap();
+        assert_eq!(settings.initial_zoom, Zoom::Scale(2.0));
+        assert!(Settings::parse("[editor]\ninitial_zoom = \"fit\"").is_ok());
+        assert!(Settings::parse("[editor]\ninitial_zoom = \"big\"").is_err());
+        assert!(Settings::parse("[editor]\ninitial_zoom = 0").is_err());
+    }
+
+    #[test]
+    fn zoom_limits_are_checked() {
+        assert!(Settings::parse("[editor]\nzoom_step = 1").is_err());
+        assert!(Settings::parse("[editor]\nmax_zoom = 0.5").is_err());
     }
 
     #[test]
