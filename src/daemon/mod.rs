@@ -13,6 +13,7 @@ mod platform;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
 pub use platform::run;
@@ -34,15 +35,21 @@ const MODES: [(&str, &str); 5] = [
 
 /// Held until the process exits, the kernel releases it even after a crash.
 fn single_instance() -> Result<File> {
+    lock("accioshot.lock")?.ok_or_else(|| "accioshot daemon is already running".into())
+}
+
+pub(crate) fn lock(name: &str) -> Result<Option<File>> {
     // macOS has no runtime directory, and its temporary one is already per user.
     let dir = match cfg!(target_os = "macos") {
         true => std::env::temp_dir(),
         false => dirs::runtime_dir().ok_or("XDG_RUNTIME_DIR is not set")?,
     };
-    let file = File::create(dir.join("accioshot.lock"))?;
-    file.try_lock()
-        .map_err(|_| "accioshot daemon is already running")?;
-    Ok(file)
+    let file = File::create(dir.join(name))?;
+    match file.try_lock() {
+        Ok(()) => Ok(Some(file)),
+        Err(std::fs::TryLockError::WouldBlock) => Ok(None),
+        Err(std::fs::TryLockError::Error(error)) => Err(error.into()),
+    }
 }
 
 fn history_modified() -> Option<SystemTime> {
@@ -85,20 +92,48 @@ fn spawn_capture(exe: PathBuf, mode: &'static str, delay: Duration) {
     });
 }
 
+static OPEN_WINDOWS: Mutex<Vec<(&'static str, u32)>> = Mutex::new(Vec::new());
+
 /// `window` is `history` or `settings`.
 fn spawn_ui(exe: &Path, window: &'static str) {
-    let ui = crate::editor::ui_binary(exe);
+    let mut open = OPEN_WINDOWS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    if let Some(&(_, pid)) = open.iter().find(|(name, _)| *name == window) {
+        raise(pid);
+        return;
+    }
+    let mut child = match Command::new(crate::editor::ui_binary(exe))
+        .arg(window)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(error) => return eprintln!("accioshot: cannot open the {window} window: {error}"),
+    };
+    let pid = child.id();
+    open.push((window, pid));
     std::thread::spawn(move || {
-        let result = Command::new(ui)
-            .arg(window)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .status();
-        if let Err(error) = result {
-            eprintln!("accioshot: cannot open the {window} window: {error}");
-        }
+        let _ = child.wait();
+        OPEN_WINDOWS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .retain(|&(_, open_pid)| open_pid != pid);
     });
 }
+
+#[cfg(target_os = "macos")]
+fn raise(pid: u32) {
+    use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
+    let Ok(pid) = i32::try_from(pid) else { return };
+    if let Some(app) = NSRunningApplication::runningApplicationWithProcessIdentifier(pid) {
+        app.activateWithOptions(NSApplicationActivationOptions::ActivateAllWindows);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn raise(_pid: u32) {}
 
 fn open(target: &std::ffi::OsStr) {
     let target = target.to_os_string();
