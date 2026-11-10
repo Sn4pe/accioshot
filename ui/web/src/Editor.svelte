@@ -12,10 +12,12 @@
     hitHandle,
     hitTop,
     History,
+    inside,
     isShape,
     keymap,
     MOVES,
     rectBetween,
+    reordered,
     resized,
     SHAPE_KINDS,
     translated,
@@ -23,6 +25,7 @@
     type Annotation,
     type Doc,
     type HandleId,
+    type Layer,
     type Move,
     type Point,
     type Rect,
@@ -31,7 +34,7 @@
     type Text,
     type Tool,
   } from './lib/model'
-  import { exportPng, imageRect, LINE_HEIGHT, measureText, renderDoc, renderSelection, viewRect } from './lib/render'
+  import { dashedRect, exportPng, imageRect, LINE_HEIGHT, measureText, renderDoc, renderSelection, viewRect } from './lib/render'
   import { centered, clampOrigin, fitScale, stepScale, zoomAt } from './lib/viewport'
 
   type Settings = {
@@ -58,6 +61,7 @@
     | { kind: 'resize'; id: number; handle: HandleId }
     | { kind: 'crop'; start: Point }
     | { kind: 'pan'; start: Point; origin: Point }
+    | { kind: 'select'; start: Point; base: number[] }
 
   const TOOLS: { tool: Tool; label: string }[] = [
     { tool: 'Select', label: 'Select' },
@@ -87,6 +91,7 @@
   const COLORED: readonly Tool[] = ['Rectangle', 'Ellipse', 'Line', 'Arrow', 'Freehand', 'Text', 'Step', 'Highlight']
   const MIN_DRAG = 3
   const NUDGE_FAR = 10
+  const DUPLICATE_OFFSET = 10
   const MIN_ZOOM = 0.05
   // Steps in and out again can miss the fit by a rounding error.
   const FIT_TOLERANCE = 0.001
@@ -110,7 +115,8 @@
   let preview = $state.raw<Doc | null>(null)
   let draft = $state.raw<Annotation | null>(null)
   let cropDraft = $state.raw<Rect | null>(null)
-  let selectedId = $state<number | null>(null)
+  let selectedIds = $state.raw<number[]>([])
+  let marquee = $state.raw<Rect | null>(null)
   let editing = $state<Editing | null>(null)
   let tool = $state<Tool>('Arrow')
   let styles = $state<Partial<Record<Tool, Style>>>({})
@@ -131,8 +137,8 @@
   let origin = $state.raw<Point | null>(null)
   let panKey = $state<string | null>(null)
   let ratio = $state(window.devicePixelRatio || 1)
-  // The annotation the last arrow press moved, so a run of presses is one undo step.
-  let nudged: number | null = null
+  // What the last arrow press moved, so a run of presses is one undo step.
+  let nudged: string | null = null
 
   const shown = $derived(preview ?? doc)
   const size = $derived(image ? { width: image.naturalWidth, height: image.naturalHeight } : { width: 1, height: 1 })
@@ -141,8 +147,12 @@
   const fit = $derived(fitScale(view, stageSize, STAGE_MARGIN))
   const scale = $derived(zoom ?? fit)
   const at = $derived(clampOrigin(origin ?? centered(view, stageSize, scale), view, stageSize, scale, STAGE_MARGIN))
-  const selected = $derived(shown.annotations.find((a) => a.id === selectedId) ?? null)
-  const styleTarget: Tool = $derived(selected?.kind ?? tool)
+  const selection = $derived(shown.annotations.filter((a) => selectedIds.includes(a.id)))
+  // Handles only show with one annotation selected.
+  const selected = $derived(selection.length === 1 ? selection[0] : null)
+  // The first one picked, which is what the size of a mixed selection follows.
+  const lead = $derived(selectedIds.map((id) => selection.find((a) => a.id === id)).find((a) => a) ?? null)
+  const styleTarget: Tool = $derived(lead?.kind ?? tool)
   const style = $derived(styleOf(styleTarget))
   const dirty = $derived(doc !== EMPTY_DOC)
 
@@ -190,10 +200,15 @@
     return { ...source, annotations: source.annotations.map((a) => (a.id === annotation.id ? annotation : a)) }
   }
 
+  /** `change` applied to every selected annotation. */
+  function mapSelected(source: Doc, change: (annotation: Annotation) => Annotation): Doc {
+    return { ...source, annotations: source.annotations.map((a) => (selectedIds.includes(a.id) ? change(a) : a)) }
+  }
+
   function setTool(next: Tool) {
     commitText()
     tool = next
-    selectedId = null
+    selectedIds = []
     cursor = toolCursor()
   }
 
@@ -240,15 +255,35 @@
   }
 
   function nudge(move: Move, far: boolean) {
-    const target = doc.annotations.find((a) => a.id === selectedId)
-    if (!target || editing) return
+    if (!selection.length || editing) return
     const step = far ? NUDGE_FAR : 1
-    const next = setAnnotation(doc, translated(target, MOVES[move].x * step, MOVES[move].y * step))
-    if (nudged === target.id) {
+    const next = mapSelected(doc, (a) => translated(a, MOVES[move].x * step, MOVES[move].y * step))
+    const key = selectedIds.join()
+    if (nudged === key) {
       history.replace(next)
       syncHistory()
     } else commit(next)
-    nudged = target.id
+    nudged = key
+  }
+
+  function duplicate() {
+    if (!selection.length || editing) return
+    const copies = doc.annotations
+      .filter((a) => selectedIds.includes(a.id))
+      .map((a) => ({ ...translated(a, DUPLICATE_OFFSET, DUPLICATE_OFFSET), id: nextId++ }))
+    commit({ ...doc, annotations: [...doc.annotations, ...copies] })
+    selectedIds = copies.map((a) => a.id)
+  }
+
+  function reorder(layer: Layer) {
+    if (!selection.length || editing) return
+    const annotations = reordered(doc.annotations, selectedIds, layer)
+    if (annotations.some((a, i) => a !== doc.annotations[i])) commit({ ...doc, annotations })
+  }
+
+  function selectAll() {
+    commitText()
+    selectedIds = doc.annotations.map((a) => a.id)
   }
 
   function startText(at: Point, existing: Text | null = null) {
@@ -256,7 +291,7 @@
     editing = existing
       ? { id: existing.id, at: existing.at, text: existing.text, color: existing.color, size: existing.size, font: existing.font }
       : { id: null, at, text: '', color: current.color, size: current.size, font: settings!.font_family }
-    selectedId = existing?.id ?? null
+    selectedIds = existing ? [existing.id] : []
   }
 
   function commitText() {
@@ -284,7 +319,7 @@
     } else {
       commit({ ...doc, annotations: [...doc.annotations, text] })
     }
-    selectedId = text.id
+    selectedIds = [text.id]
   }
 
   function onPointerDown(event: PointerEvent) {
@@ -309,7 +344,8 @@
     const tolerance = 6 / scale
     ;(event.currentTarget as Element).setPointerCapture(event.pointerId)
 
-    if (selected && tool !== 'Crop') {
+    // Text and Step tools place new ones, so their handles only answer to Select. Shift toggles instead.
+    if (selected && !event.shiftKey && (tool === 'Select' || (tool !== 'Crop' && isShape(selected)))) {
       const handle = hitHandle(selected, p, tolerance + 2 / scale)
       if (handle) {
         gesture = { kind: 'resize', id: selected.id, handle }
@@ -319,8 +355,18 @@
     switch (tool) {
       case 'Select': {
         const target = hitTop(doc.annotations, p, tolerance)
-        selectedId = target?.id ?? null
-        if (target) gesture = { kind: 'move', id: target.id, start: p }
+        if (event.shiftKey) {
+          if (!target) gesture = { kind: 'select', start: p, base: selectedIds }
+          else if (selectedIds.includes(target.id)) selectedIds = selectedIds.filter((id) => id !== target.id)
+          else selectedIds = [...selectedIds, target.id]
+        } else if (target) {
+          // Dragging one of several selected annotations moves them all.
+          if (!selectedIds.includes(target.id)) selectedIds = [target.id]
+          gesture = { kind: 'move', id: target.id, start: p }
+        } else {
+          selectedIds = []
+          gesture = { kind: 'select', start: p, base: [] }
+        }
         break
       }
       case 'Crop':
@@ -335,16 +381,16 @@
         const current = styleOf('Step')
         const id = nextId++
         commit({ ...doc, annotations: [...doc.annotations, { id, kind: 'Step', at: p, ...current }] })
-        selectedId = id
+        selectedIds = [id]
         break
       }
       case 'Freehand':
-        selectedId = null
+        selectedIds = []
         draft = { id: nextId++, kind: 'Freehand', points: [p], ...styleOf('Freehand') }
         gesture = { kind: 'draw', start: p }
         break
       default:
-        selectedId = null
+        selectedIds = []
         draft = { id: nextId++, kind: tool as ShapeKind, a: p, b: p, ...styleOf(tool) }
         gesture = { kind: 'draw', start: p }
     }
@@ -373,13 +419,22 @@
         }
         break
       case 'move': {
-        const original = doc.annotations.find((a) => a.id === (gesture as { id: number }).id)
-        if (original) preview = setAnnotation(doc, translated(original, p.x - gesture.start.x, p.y - gesture.start.y))
+        const { x, y } = gesture.start
+        preview = mapSelected(doc, (a) => translated(a, p.x - x, p.y - y))
         break
       }
       case 'resize': {
-        const original = doc.annotations.find((a) => a.id === (gesture as { id: number }).id)
-        if (original && isShape(original)) preview = setAnnotation(doc, resized(original, gesture.handle, p))
+        const { id, handle } = gesture
+        const original = doc.annotations.find((a) => a.id === id)
+        if (original) preview = setAnnotation(doc, resized(original, handle, p, SIZE_RANGES[original.kind] ?? [1, Infinity]))
+        break
+      }
+      case 'select': {
+        const { start, base } = gesture
+        const box = rectBetween(start, p)
+        const boxed = doc.annotations.filter((a) => inside(a, box) && !base.includes(a.id)).map((a) => a.id)
+        marquee = box
+        selectedIds = [...base, ...boxed]
         break
       }
       case 'crop':
@@ -399,13 +454,26 @@
       case 'draw':
         if (draft && longEnough(draft)) {
           commit({ ...doc, annotations: [...doc.annotations, draft] })
-          selectedId = draft.kind === 'Freehand' ? null : draft.id
+          selectedIds = draft.kind === 'Freehand' ? [] : [draft.id]
         }
         draft = null
         break
       case 'move':
-      case 'resize':
         if (preview) commit(preview)
+        // A click without a drag picks that one out of the selection.
+        else selectedIds = [current.id]
+        break
+      case 'resize': {
+        const resizedOne = preview?.annotations.find((a) => a.id === current.id)
+        if (preview) commit(preview)
+        // The slider follows a step or text resized by its handle.
+        if (resizedOne?.kind === 'Text' || resizedOne?.kind === 'Step') {
+          styles[resizedOne.kind] = { ...styleOf(resizedOne.kind), size: resizedOne.size }
+        }
+        break
+      }
+      case 'select':
+        marquee = null
         break
       case 'crop':
         if (cropDraft && cropDraft.width >= MIN_DRAG && cropDraft.height >= MIN_DRAG) {
@@ -443,24 +511,32 @@
     if (target?.kind === 'Text') startText(target.at, target)
   }
 
-  /** Changes the selected annotation too, and remembers the style for its tool. */
+  /**
+   * Changes the selection too, and remembers the style for its tool. With mixed kinds the color goes
+   * to every colored one, the size only to those of the first one's kind, as sizes mean different things.
+   */
   function applyStyle(change: Partial<Style>, final: boolean) {
     styles[styleTarget] = { ...styleOf(styleTarget), ...change }
-    if (!selected) return
-    const updated = { ...selected, ...change } as Annotation
-    if (updated.kind === 'Text') {
-      const measured = measureText(canvas!.getContext('2d')!, updated.text, updated.size, updated.font)
-      Object.assign(updated, measured)
-    }
-    const next = setAnnotation(doc, updated)
+    if (!selection.length) return
+    const next = mapSelected(doc, (annotation) => {
+      const fits = {
+        ...(change.color !== undefined && COLORED.includes(annotation.kind) ? { color: change.color } : {}),
+        ...(change.size !== undefined && annotation.kind === styleTarget ? { size: change.size } : {}),
+      }
+      const updated = { ...annotation, ...fits } as Annotation
+      if (updated.kind === 'Text') {
+        Object.assign(updated, measureText(canvas!.getContext('2d')!, updated.text, updated.size, updated.font))
+      }
+      return updated
+    })
     if (final) commit(next)
     else preview = next
   }
 
   function remove() {
-    if (selectedId === null) return
-    commit({ ...doc, annotations: doc.annotations.filter((a) => a.id !== selectedId) })
-    selectedId = null
+    if (!selection.length) return
+    commit({ ...doc, annotations: doc.annotations.filter((a) => !selectedIds.includes(a.id)) })
+    selectedIds = []
   }
 
   function undo() {
@@ -479,12 +555,14 @@
   function escape() {
     if (confirmingDiscard) confirmingDiscard = false
     else if (gesture) {
+      if (gesture.kind === 'select') selectedIds = gesture.base
       gesture = null
       draft = null
       preview = null
       cropDraft = null
+      marquee = null
       cursor = panKey ? 'grab' : toolCursor()
-    } else if (selectedId !== null) selectedId = null
+    } else if (selection.length) selectedIds = []
     else requestDiscard()
   }
 
@@ -546,6 +624,15 @@
       case 'move_up':
       case 'move_down':
         return nudge(action, event.shiftKey)
+      case 'duplicate':
+        return duplicate()
+      case 'select_all':
+        return selectAll()
+      case 'bring_forward':
+      case 'send_backward':
+      case 'bring_to_front':
+      case 'send_to_back':
+        return reorder(action)
       default:
         setTool(action)
     }
@@ -631,7 +718,8 @@
     ctx.imageSmoothingEnabled = scale < 1
     ctx.drawImage(sheet, view.x, view.y, view.width, view.height)
     ctx.imageSmoothingEnabled = true
-    if (selected && !editing) renderSelection(ctx, selected, scale)
+    if (!editing) for (const annotation of selection) renderSelection(ctx, annotation, scale, selection.length === 1)
+    if (marquee) dashedRect(ctx, marquee, 1 / scale)
     if (cropDraft) {
       ctx.fillStyle = 'rgba(0, 0, 0, 0.55)'
       ctx.beginPath()

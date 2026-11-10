@@ -136,8 +136,20 @@ export function translated<T extends Annotation>(annotation: T, dx: number, dy: 
 export type HandleId = 'a' | 'b' | 'ab' | 'ba'
 export type Handle = { id: HandleId; at: Point }
 
-/** Line-like shapes resize by their ends, the rest by their corners. */
+/** Line-like shapes resize by their ends, the rest by their corners. Text scales from its bottom right. */
 export function handles(annotation: Annotation): Handle[] {
+  if (annotation.kind === 'Text') {
+    return [{ id: 'b', at: { x: annotation.at.x + annotation.width, y: annotation.at.y + annotation.height } }]
+  }
+  if (annotation.kind === 'Step') {
+    const r = bounds(annotation)
+    return [
+      { id: 'a', at: { x: r.x, y: r.y } },
+      { id: 'b', at: { x: r.x + r.width, y: r.y + r.height } },
+      { id: 'ab', at: { x: r.x, y: r.y + r.height } },
+      { id: 'ba', at: { x: r.x + r.width, y: r.y } },
+    ]
+  }
   if (!isShape(annotation)) return []
   const { a, b } = annotation
   const ends: Handle[] = [
@@ -153,7 +165,22 @@ export function hitHandle(annotation: Annotation, p: Point, tolerance: number): 
   return handle?.id ?? null
 }
 
-export function resized(shape: Shape, handle: HandleId, p: Point): Shape {
+/** Steps grow around their center and text from its corner, both within `limits`. */
+export function resized(annotation: Annotation, handle: HandleId, p: Point, limits: [number, number]): Annotation {
+  const clamp = (size: number) => Math.min(Math.max(size, limits[0]), limits[1])
+  if (annotation.kind === 'Step') {
+    const size = clamp(Math.round(2 * Math.max(Math.abs(p.x - annotation.at.x), Math.abs(p.y - annotation.at.y))))
+    return { ...annotation, size }
+  }
+  if (annotation.kind === 'Text') {
+    const size = clamp(Math.round((annotation.size * Math.max(p.y - annotation.at.y, 1)) / annotation.height))
+    const factor = size / annotation.size
+    return { ...annotation, size, width: annotation.width * factor, height: annotation.height * factor }
+  }
+  return isShape(annotation) ? resizedShape(annotation, handle, p) : annotation
+}
+
+function resizedShape(shape: Shape, handle: HandleId, p: Point): Shape {
   switch (handle) {
     case 'a':
       return { ...shape, a: p }
@@ -179,9 +206,39 @@ export function constrained(kind: Tool, a: Point, b: Point): Point {
   return { x: a.x + Math.sign(dx || 1) * side, y: a.y + Math.sign(dy || 1) * side }
 }
 
-/** The position of a step among all steps, so deleting one renumbers the rest. */
+/** Steps count in the order they were placed, so layers do not renumber them but deleting one does. */
 export function stepNumber(annotations: Annotation[], id: number): number {
-  return annotations.filter((a) => a.kind === 'Step').findIndex((a) => a.id === id) + 1
+  return annotations.filter((a) => a.kind === 'Step' && a.id <= id).length
+}
+
+export type Layer = 'bring_forward' | 'send_backward' | 'bring_to_front' | 'send_to_back'
+
+/** Moves the annotations in `ids` through the stack, keeping their order among themselves. */
+export function reordered(annotations: Annotation[], ids: number[], layer: Layer): Annotation[] {
+  const picked = (a: Annotation) => ids.includes(a.id)
+  const list = [...annotations]
+  switch (layer) {
+    case 'bring_to_front':
+      return [...list.filter((a) => !picked(a)), ...list.filter(picked)]
+    case 'send_to_back':
+      return [...list.filter(picked), ...list.filter((a) => !picked(a))]
+    case 'bring_forward':
+      for (let i = list.length - 2; i >= 0; i--) {
+        if (picked(list[i]) && !picked(list[i + 1])) [list[i], list[i + 1]] = [list[i + 1], list[i]]
+      }
+      return list
+    case 'send_backward':
+      for (let i = 1; i < list.length; i++) {
+        if (picked(list[i]) && !picked(list[i - 1])) [list[i], list[i - 1]] = [list[i - 1], list[i]]
+      }
+      return list
+  }
+}
+
+/** Fully inside `rect`, like a selection box in a drawing program. */
+export function inside(annotation: Annotation, rect: Rect): boolean {
+  const b = bounds(annotation)
+  return b.x >= rect.x && b.y >= rect.y && b.x + b.width <= rect.x + rect.width && b.y + b.height <= rect.y + rect.height
 }
 
 export function clampRect(rect: Rect, limit: Rect): Rect {
@@ -249,6 +306,9 @@ export type Action =
   | 'zoom_fit'
   | 'zoom_actual'
   | 'pan'
+  | 'duplicate'
+  | 'select_all'
+  | Layer
 
 export const MOVES: Record<Move, Point> = {
   move_left: { x: -1, y: 0 },
@@ -287,6 +347,13 @@ export const DEFAULT_KEYS: Record<Action, string> = {
   move_right: 'arrowright, shift+arrowright',
   move_up: 'arrowup, shift+arrowup',
   move_down: 'arrowdown, shift+arrowdown',
+  duplicate: 'ctrl+d',
+  select_all: 'ctrl+a',
+  // Page and Home/End like Inkscape, [ and ] need AltGr on many layouts.
+  bring_forward: 'pageup',
+  send_backward: 'pagedown',
+  bring_to_front: 'home',
+  send_to_back: 'end',
 }
 
 export function normalizeCombo(combo: string): string {

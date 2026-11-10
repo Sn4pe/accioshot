@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { clampRect, handles, rectBetween, stepNumber, type Annotation, type Doc, type Rect, type Shape, type Text } from './model'
+import { bounds, clampRect, handles, rectBetween, stepNumber, type Annotation, type Doc, type Rect, type Shape, type Text } from './model'
 
 export const LINE_HEIGHT = 1.25
 const ARROW_HEAD_LENGTH = 5
@@ -196,18 +196,23 @@ export function renderDoc(
   for (const annotation of draftDoc.annotations) drawAnnotation(ctx, annotation, draftDoc, view)
 }
 
-/** Selection marks, in image pixels but sized for the current zoom. Not part of the export. */
-export function renderSelection(ctx: CanvasRenderingContext2D, annotation: Annotation, scale: number) {
+/**
+ * Selection marks, in image pixels but sized for the current zoom. Not part of the export.
+ * Part of a multiple selection, shapes get a box instead of their handles.
+ */
+export function renderSelection(ctx: CanvasRenderingContext2D, annotation: Annotation, scale: number, withHandles = true) {
   const pixel = 1 / scale
   ctx.save()
-  if (annotation.kind === 'Text' || annotation.kind === 'Step' || annotation.kind === 'Freehand') {
-    const r = annotation.kind === 'Freehand' ? freehandBox(annotation) : box(annotation)
-    ctx.lineWidth = pixel
-    ctx.setLineDash([4 * pixel, 3 * pixel])
-    ctx.strokeStyle = '#f4f1ea'
-    ctx.strokeRect(r.x, r.y, r.width, r.height)
+  if (!withHandles || annotation.kind === 'Text' || annotation.kind === 'Step' || annotation.kind === 'Freehand') {
+    const r =
+      annotation.kind === 'Freehand'
+        ? freehandBox(annotation)
+        : annotation.kind === 'Text' || annotation.kind === 'Step'
+          ? box(annotation)
+          : padded(bounds(annotation), STROKED.includes(annotation.kind) ? annotation.size / 2 + 4 : 4)
+    dashedRect(ctx, r, pixel)
   }
-  for (const handle of handles(annotation)) {
+  for (const handle of withHandles ? handles(annotation) : []) {
     const half = 5 * pixel
     ctx.fillStyle = '#f4f1ea'
     ctx.strokeStyle = '#1b1916'
@@ -216,6 +221,25 @@ export function renderSelection(ctx: CanvasRenderingContext2D, annotation: Annot
     ctx.strokeRect(handle.at.x - half, handle.at.y - half, half * 2, half * 2)
   }
   ctx.restore()
+}
+
+/** Light dashes over a dark line, so the box shows on any image. */
+export function dashedRect(ctx: CanvasRenderingContext2D, r: Rect, pixel: number) {
+  ctx.save()
+  ctx.lineWidth = pixel
+  ctx.strokeStyle = '#1b1916'
+  ctx.strokeRect(r.x, r.y, r.width, r.height)
+  ctx.setLineDash([4 * pixel, 3 * pixel])
+  ctx.strokeStyle = '#f4f1ea'
+  ctx.strokeRect(r.x, r.y, r.width, r.height)
+  ctx.restore()
+}
+
+// For Blur and Pixelate the size is a strength, not a line around the box.
+const STROKED: readonly string[] = ['Rectangle', 'Ellipse', 'Line', 'Arrow']
+
+function padded(r: Rect, margin: number): Rect {
+  return { x: r.x - margin, y: r.y - margin, width: r.width + margin * 2, height: r.height + margin * 2 }
 }
 
 function box(annotation: Text | Extract<Annotation, { kind: 'Step' }>): Rect {
