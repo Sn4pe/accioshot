@@ -70,12 +70,18 @@ redo = "ctrl+shift+z, ctrl+y"
 ```
 
 Actions in `[editor.keys]` are the tool names plus `undo`, `redo`, `delete`, `save`, `copy`,
-`discard`, `zoom_in`, `zoom_out`, `zoom_fit`, `zoom_actual`, `pan` and `move_left`, `move_right`,
-`move_up`, `move_down`.
+`discard`, `zoom_in`, `zoom_out`, `zoom_fit`, `zoom_actual`, `pan`, `move_left`, `move_right`,
+`move_up`, `move_down`, `duplicate` (Ctrl+D), `select_all` (Ctrl+A), `bring_forward` (Page Up),
+`send_backward` (Page Down), `bring_to_front` (Home) and `send_to_back` (End).
 
 Ctrl and the wheel zoom around the pointer, the wheel scrolls and Shift scrolls sideways. The middle
 button drags the view, and so does the left one while `pan` (Space) is held. The move keys nudge the
 selection by 1 pixel, 10 with Shift, and a run of them is one undo step.
+
+With Select, drag over empty space to select every annotation fully inside the box, and Shift-click
+to add or drop one. Moving, the move keys, Delete, duplicating, layers and the color apply to the
+whole selection, the size only to annotations of the first one's kind. Steps keep the number they
+were placed with when they change layer.
 
 To use another editor, set `command` to a program line with `{input}` and `{output}`. No output means
 discarded and a failed exit is an error. Without `{output}` it must edit `{input}` in place, and then
