@@ -19,7 +19,7 @@
           pkgs = nixpkgs.legacyPackages.${system};
           webUi = pkgs.buildNpmPackage {
             pname = "accioshot-web";
-            version = "0.1.0";
+            version = "0.2.0";
             src = pkgs.lib.cleanSourceWith {
               src = ./ui/web;
               filter = path: _: !(builtins.elem (baseNameOf path) [ "node_modules" "dist" ]);
@@ -30,7 +30,7 @@
         in {
           default = pkgs.rustPlatform.buildRustPackage {
             pname = "accioshot";
-            version = "0.1.0";
+            version = "0.2.0";
             src = pkgs.lib.cleanSourceWith {
               src = ./.;
               filter = path: _: !(builtins.elem (baseNameOf path) [ "target" "node_modules" "dist" "result" ]);
