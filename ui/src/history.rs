@@ -63,6 +63,10 @@ impl Library {
     }
 }
 
+fn file(entry: &Entry) -> Result<&Path> {
+    Ok(entry.path.as_deref().ok_or("this capture has no file")?)
+}
+
 fn label(entry: &Entry) -> String {
     entry
         .path
@@ -138,11 +142,8 @@ pub async fn thumbnail(entry: Entry, app: AppHandle) -> Result<Response> {
 
 fn thumbnail_of(entry: &Entry, library: &Library) -> Result<Response> {
     library.check(entry)?;
-    let path = entry.path.as_deref().ok_or("this capture has no file")?;
-    let size = (
-        library.config.thumbnail_width,
-        library.config.thumbnail_height,
-    );
+    let path = file(entry)?;
+    let size = library.config.thumbnail_size();
     Ok(cached_thumbnail(path, size)
         .map(Response::new)
         .map_err(|error| format!("cannot read {}: {error}", path.display()))?)
@@ -197,7 +198,7 @@ pub async fn image(entry: Entry, app: AppHandle) -> Result<Response> {
 
 fn image_of(entry: &Entry, library: &Library) -> Result<Response> {
     library.check(entry)?;
-    let path = entry.path.as_deref().ok_or("this capture has no file")?;
+    let path = file(entry)?;
     Ok(std::fs::read(path)
         .map(Response::new)
         .map_err(|error| format!("cannot read {}: {error}", path.display()))?)
@@ -212,11 +213,11 @@ fn copy_part(entry: &Entry, part: Part, library: &Library) -> Result<()> {
     library.check(entry)?;
     match part {
         Part::Image => {
-            let path = entry.path.as_deref().ok_or("this capture has no file")?;
+            let path = file(entry)?;
             copy(&[std::ffi::OsStr::new("--image"), path.as_os_str()], "")
         }
         Part::Path => {
-            let path = entry.path.as_deref().ok_or("this capture has no file")?;
+            let path = file(entry)?;
             copy(&[], &path.to_string_lossy())
         }
         Part::Url => copy(&[], entry.url.as_deref().ok_or("this capture has no URL")?),
@@ -284,16 +285,10 @@ fn edit_file(path: &Path, command: &str, still_listed: impl Fn() -> bool) -> Res
 pub fn open_entry(entry: Entry, part: Part, library: State<Library>) -> Result<()> {
     library.check(&entry)?;
     match part {
-        Part::File => open(
-            entry
-                .path
-                .as_deref()
-                .ok_or("this capture has no file")?
-                .as_os_str(),
-        ),
+        Part::File => open(file(&entry)?.as_os_str()),
         Part::Folder => {
-            let dir = entry.path.as_deref().and_then(Path::parent);
-            open(dir.ok_or("this capture has no file")?.as_os_str())
+            let dir = file(&entry)?.parent().ok_or("this capture has no folder")?;
+            open(dir.as_os_str())
         }
         Part::Url => open_url(entry.url.as_deref()),
         Part::DeletionUrl => open_url(entry.deletion_url.as_deref()),
@@ -322,10 +317,7 @@ pub fn delete_entries(
     library: State<Library>,
 ) -> Result<Vec<String>> {
     let (entries, mut failures) = library.split_known(entries);
-    let size = (
-        library.config.thumbnail_width,
-        library.config.thumbnail_height,
-    );
+    let size = library.config.thumbnail_size();
     let mut removable = Vec::new();
     for entry in entries {
         if let Some(path) = entry.path.as_deref() {

@@ -74,6 +74,12 @@ pub struct HistoryConfig {
     pub filter_missing_files: bool,
 }
 
+impl HistoryConfig {
+    pub fn thumbnail_size(&self) -> (u32, u32) {
+        (self.thumbnail_width, self.thumbnail_height)
+    }
+}
+
 /// ShareX's defaults, from ImageHistorySettings.
 impl Default for HistoryConfig {
     fn default() -> Self {
