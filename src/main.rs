@@ -3,7 +3,6 @@
 mod capture;
 mod clipboard;
 mod daemon;
-mod editor;
 mod names;
 mod notify;
 mod region;
@@ -17,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
-use accioshot::{OPENER, Result, config, history};
+use accioshot::{OPENER, Result, config, editor, history};
 use clap::{Args, Parser, Subcommand};
 
 use config::{AfterCapture, AfterUpload, Config};

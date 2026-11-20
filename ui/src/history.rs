@@ -3,13 +3,14 @@
 use std::fs::{DirBuilder, Metadata};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{Cursor, Write};
-use std::os::unix::fs::DirBuilderExt;
+use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
-use accioshot::config::HistoryConfig;
+use accioshot::config::{Config, HistoryConfig};
+use accioshot::editor;
+use accioshot::fs::{PrivateDir, write_atomically};
 use accioshot::history::{self, Entry};
 use image::ImageFormat;
 use serde::{Deserialize, Serialize};
@@ -173,7 +174,7 @@ fn store(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         // 0700: these are small copies of screenshots, they may hold anything.
         DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
     }
-    accioshot::fs::write_atomically(path, bytes, 0o600)
+    write_atomically(path, bytes, 0o600)
 }
 
 #[tauri::command]
@@ -234,8 +235,6 @@ fn copy(args: &[&std::ffi::OsStr], text: &str) -> Result<(), String> {
     }
 }
 
-static EDITS: AtomicUsize = AtomicUsize::new(0);
-
 #[tauri::command]
 pub async fn edit_entry(entry: Entry, app: AppHandle) -> Result<(), String> {
     blocking(app, move |library| edit(&entry, library)).await
@@ -248,29 +247,34 @@ fn edit(entry: &Entry, library: &Library) -> Result<(), String> {
         .as_deref()
         .filter(|path| path.exists())
         .ok_or("this capture has no file")?;
-    let name = path.file_name().ok_or("this capture has no file")?;
-    let edit = EDITS.fetch_add(1, Ordering::Relaxed);
-    let output = path.with_file_name(format!(".{}.{edit}.editing.png", name.to_string_lossy()));
-    let copy_only = output.with_extension("copy-only");
-    Command::new(crate::sibling("accioshot-ui"))
-        .arg("edit")
-        .arg(path)
-        .arg(&output)
-        .status()
-        .map_err(|error| format!("cannot open the editor: {error}"))?;
-    let result = if !output.exists() {
-        Ok(())
-    } else if library.check(entry).is_err() || !path.exists() {
-        Err("the capture was removed while it was being edited".to_string())
-    } else if copy_only.exists() {
-        copy(&[std::ffi::OsStr::new("--image"), output.as_os_str()], "")
-    } else {
-        std::fs::rename(&output, path)
-            .map_err(|error| format!("cannot save {}: {error}", path.display()))
+    let command = Config::load()
+        .map_err(|error| error.to_string())?
+        .editor
+        .command;
+    edit_file(path, &command, || library.check(entry).is_ok())
+}
+
+fn edit_file(path: &Path, command: &str, still_listed: impl Fn() -> bool) -> Result<(), String> {
+    let png =
+        std::fs::read(path).map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+    let Some(edited) = editor::edit(command, &png).map_err(|error| error.to_string())? else {
+        return Ok(());
     };
-    let _ = std::fs::remove_file(&output);
-    let _ = std::fs::remove_file(&copy_only);
-    result
+    if !still_listed() || !path.exists() {
+        return Err("the capture was removed while it was being edited".to_string());
+    }
+    if edited.copy_only {
+        let dir = PrivateDir::new("accioshot-copy").map_err(|error| error.to_string())?;
+        let file = dir.path().join("capture.png");
+        std::fs::write(&file, &edited.png).map_err(|error| error.to_string())?;
+        return copy(&[std::ffi::OsStr::new("--image"), file.as_os_str()], "");
+    }
+    let mode = std::fs::metadata(path)
+        .map_err(|error| error.to_string())?
+        .permissions()
+        .mode();
+    write_atomically(path, &edited.png, mode)
+        .map_err(|error| format!("cannot save {}: {error}", path.display()))
 }
 
 #[tauri::command]
@@ -439,8 +443,26 @@ mod tests {
     }
 
     #[test]
+    fn edits_replace_the_file_and_failures_say_so() {
+        let dir = temp_dir("edit");
+        let path = dir.join("a.png");
+        let png = b"\x89PNG\r\n\x1a\nold";
+        std::fs::write(&path, png).unwrap();
+        std::fs::set_permissions(&path, PermissionsExt::from_mode(0o640)).unwrap();
+        edit_file(&path, "cp {input} {output}", || true).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), png);
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o640);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        assert!(edit_file(&path, "false {input}", || true).is_err());
+        assert!(edit_file(&path, "cp {input} {output}", || false).is_err());
+        edit_file(&path, "true {output}", || true).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), png);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn stored_thumbnails_leave_no_partial_file() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = temp_dir("store").join("thumbs");
         let path = dir.join("a.png");
         store(&path, b"png").unwrap();

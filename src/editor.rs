@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::fs::DirBuilder;
 use std::io::ErrorKind;
-use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::Result;
 use crate::config::BUILTIN_EDITOR;
+use crate::fs::PrivateDir;
 
 const UI_BINARY: &str = "accioshot-ui";
 const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
@@ -21,16 +20,8 @@ pub struct Edited {
 
 /// Opens the capture in an editor. Returns the edited image, or None if the user discarded it.
 pub fn edit(command: &str, png: &[u8]) -> Result<Option<Edited>> {
-    let dir = dirs::runtime_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join(format!("accioshot-edit-{}", std::process::id()));
-    // A killed run with this same pid leaves its directory behind.
-    let _ = std::fs::remove_dir_all(&dir);
-    // 0700: this is a screenshot, it may hold anything.
-    DirBuilder::new().mode(0o700).create(&dir)?;
-    let result = edit_in(command, png, &dir);
-    let _ = std::fs::remove_dir_all(&dir);
-    result
+    let dir = PrivateDir::new("accioshot-edit")?;
+    edit_in(command, png, dir.path())
 }
 
 fn edit_in(command: &str, png: &[u8], dir: &Path) -> Result<Option<Edited>> {
@@ -190,15 +181,9 @@ mod tests {
     }
 
     #[test]
-    fn leftover_directory_does_not_block_an_edit() {
-        let dir = dirs::runtime_dir()
-            .unwrap_or_else(std::env::temp_dir)
-            .join(format!("accioshot-edit-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("input.png"), "old").unwrap();
+    fn edit_runs_in_a_directory_of_its_own() {
         let edited = edit("cp {input} {output}", PNG_SIGNATURE).unwrap().unwrap();
         assert_eq!(edited.png, PNG_SIGNATURE);
-        assert!(!dir.exists());
     }
 
     #[test]

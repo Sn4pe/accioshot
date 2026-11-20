@@ -3,6 +3,7 @@
 //! What `accioshot` and `accioshot-ui` share.
 
 pub mod config;
+pub mod editor;
 pub mod fs;
 pub mod history;
 pub mod hotkey;

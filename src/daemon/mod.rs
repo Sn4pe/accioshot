@@ -103,7 +103,7 @@ fn spawn_ui(exe: &Path, window: &'static str) {
         raise(pid);
         return;
     }
-    let mut child = match Command::new(crate::editor::ui_binary(exe))
+    let mut child = match Command::new(accioshot::editor::ui_binary(exe))
         .arg(window)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
