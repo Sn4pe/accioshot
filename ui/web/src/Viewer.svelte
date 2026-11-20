@@ -2,7 +2,7 @@
 <script lang="ts">
   import { image } from './ipc'
   import { onMount } from 'svelte'
-  import { eventCombo, keymap } from './lib/keys'
+  import { eventCombo, keymap, withCtrl } from './lib/keys'
   import { title, type Item } from './lib/library'
   import type { Point } from './lib/model'
   import {
@@ -69,7 +69,7 @@
   function onWheel(event: WheelEvent & { currentTarget: Element }) {
     if (!naturalWidth) return
     event.preventDefault()
-    if (event.ctrlKey || event.metaKey) {
+    if (withCtrl(event)) {
       setZoom(scale * wheelZoom(event, ZOOM_STEP), offsetIn(event.currentTarget, event))
       return
     }

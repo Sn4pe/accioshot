@@ -73,9 +73,13 @@ export function normalizeCombo(combo: string): string {
   return [...order, key].join('+')
 }
 
+export function withCtrl(event: { ctrlKey: boolean; metaKey: boolean }): boolean {
+  return event.ctrlKey || event.metaKey
+}
+
 export function eventCombo(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>): string {
   const parts: string[] = []
-  if (event.ctrlKey || event.metaKey) parts.push('ctrl')
+  if (withCtrl(event)) parts.push('ctrl')
   if (event.altKey) parts.push('alt')
   if (event.shiftKey) parts.push('shift')
   parts.push(event.key === ' ' ? 'space' : event.key.toLowerCase())

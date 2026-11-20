@@ -4,7 +4,7 @@
   import Frame from './Frame.svelte'
   import { copyEntry, deleteEntries, editEntry, historyItems, openEntry, startDrag, type Part } from './ipc'
   import Viewer from './Viewer.svelte'
-  import { eventCombo } from './lib/keys'
+  import { eventCombo, withCtrl } from './lib/keys'
   import { byDay, entryKey, matches, pick, title, unique, type Entry, type Item } from './lib/library'
 
   let items = $state.raw<Item[] | null>(null)
@@ -131,7 +131,7 @@
 
   function select(entry: Entry, event: MouseEvent) {
     const key = entryKey(entry)
-    const how = event.metaKey || event.ctrlKey ? 'toggle' : event.shiftKey ? 'range' : 'one'
+    const how = withCtrl(event) ? 'toggle' : event.shiftKey ? 'range' : 'one'
     const keys = order.map((item) => entryKey(item.entry))
     setSelection(
       how === 'one' && current && same(current.entry, entry) ? new Set() : pick(selected, keys, key, anchor, how),
