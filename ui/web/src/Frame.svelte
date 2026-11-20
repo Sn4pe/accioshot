@@ -46,6 +46,7 @@
 
   const BLANK = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
   let blob: Blob | null = null
+  let destroyed = false
 
   function iconUrl(): Promise<string> {
     return new Promise((resolve) => {
@@ -65,6 +66,7 @@
     if (!entry.path || !item.exists) return
     try {
       const bytes = await invoke<ArrayBuffer>('thumbnail', { entry })
+      if (destroyed) return
       blob = new Blob([bytes], { type: 'image/png' })
       src = URL.createObjectURL(blob)
     } catch {
@@ -73,6 +75,7 @@
   }
 
   onDestroy(() => {
+    destroyed = true
     if (src) URL.revokeObjectURL(src)
   })
 </script>
