@@ -114,27 +114,60 @@ fn main() {
         std::process::exit(2);
     };
 
-    let mut builder = tauri::Builder::default()
-        .plugin(tauri_plugin_drag::init())
-        .manage(WindowName(mode.name()));
-    let (title, (width, height), floating) = match mode {
-        Mode::Edit(paths) => {
-            let settings = Settings::load().unwrap_or_else(|error| fail(error));
-            let window = (settings.width, settings.height, settings.floating);
-            builder = builder.manage(paths).manage(settings);
-            ("accioshot editor", (window.0, window.1), window.2)
-        }
-        Mode::History => {
-            // A broken config.toml should not hide the captures, the defaults show them fine.
-            let config = Config::load().unwrap_or_else(|error| {
-                eprintln!("accioshot-ui: {error}");
-                Config::default()
-            });
-            builder = builder.manage(history::Library::new(config.history));
-            ("accioshot history", HISTORY_SIZE, true)
-        }
-        Mode::Settings => ("accioshot settings", SETTINGS_SIZE, true),
-    };
+    let mut builder = tauri::Builder::default().manage(WindowName(mode.name()));
+    let (title, (width, height), floating) =
+        match mode {
+            Mode::Edit(paths) => {
+                let settings = Settings::load().unwrap_or_else(|error| fail(error));
+                let window = (settings.width, settings.height, settings.floating);
+                builder = builder.manage(paths).manage(settings).invoke_handler(
+                    tauri::generate_handler![
+                        window_name,
+                        theme::ui_theme,
+                        editor::read_image,
+                        editor::settings,
+                        editor::load_state,
+                        editor::save_state,
+                        editor::save,
+                        editor::copy,
+                        editor::discard,
+                    ],
+                );
+                ("accioshot editor", (window.0, window.1), window.2)
+            }
+            Mode::History => {
+                // A broken config.toml should not hide the captures, the defaults show them fine.
+                let config = Config::load().unwrap_or_else(|error| {
+                    eprintln!("accioshot-ui: {error}");
+                    Config::default()
+                });
+                builder = builder
+                    .plugin(tauri_plugin_drag::init())
+                    .manage(history::Library::new(config.history))
+                    .invoke_handler(tauri::generate_handler![
+                        window_name,
+                        theme::ui_theme,
+                        history::history_items,
+                        history::thumbnail,
+                        history::image,
+                        history::copy_entry,
+                        history::open_entry,
+                        history::edit_entry,
+                        history::delete_entries,
+                    ]);
+                ("accioshot history", HISTORY_SIZE, true)
+            }
+            Mode::Settings => {
+                builder = builder.invoke_handler(tauri::generate_handler![
+                    window_name,
+                    theme::ui_theme,
+                    preferences::load_preferences,
+                    preferences::save_preferences,
+                    preferences::open_config,
+                ]);
+                ("accioshot settings", SETTINGS_SIZE, true)
+            }
+        };
 
     let result = builder
         .setup(move |app| {
@@ -166,27 +199,6 @@ fn main() {
                 .set_focus()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
-            window_name,
-            theme::ui_theme,
-            editor::read_image,
-            editor::settings,
-            editor::load_state,
-            editor::save_state,
-            editor::save,
-            editor::copy,
-            editor::discard,
-            history::history_items,
-            history::thumbnail,
-            history::image,
-            history::copy_entry,
-            history::open_entry,
-            history::edit_entry,
-            history::delete_entries,
-            preferences::load_preferences,
-            preferences::save_preferences,
-            preferences::open_config,
-        ])
         .run(tauri::generate_context!());
 
     if let Err(error) = result {
