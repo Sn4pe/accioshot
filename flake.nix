@@ -24,7 +24,7 @@
               src = ./ui/web;
               filter = path: _: !(builtins.elem (baseNameOf path) [ "node_modules" "dist" ]);
             };
-            npmDepsHash = "sha256-teUftjgEXqmD+tGXPRDPSlf4XqhqEWXD2RJ42rXVK+Q=";
+            npmDepsHash = "sha256-Jkz3Jy1PkIEt3/1ZlfCmDStjPPFn67eaoarg6qEYA4Y=";
             installPhase = "cp -r dist $out";
           };
         in {
