@@ -256,14 +256,15 @@
       {/each}
     </main>
     {#if viewing && current}
-      <Viewer
-        item={current}
-        {revision}
-        position={position + 1}
-        total={order.length}
-        preview={viewing === 'preview'}
-        onclose={() => (viewing = null)}
-      />
+      {#key `${revision}:${entryKey(current.entry)}`}
+        <Viewer
+          item={current}
+          position={position + 1}
+          total={order.length}
+          preview={viewing === 'preview'}
+          onclose={() => (viewing = null)}
+        />
+      {/key}
     {/if}
   </div>
 

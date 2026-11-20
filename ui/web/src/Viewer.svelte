@@ -1,9 +1,9 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <script lang="ts">
   import { image } from './ipc'
-  import { untrack } from 'svelte'
+  import { onMount } from 'svelte'
   import { eventCombo, keymap } from './lib/keys'
-  import { entryKey, fileName, title, type Item } from './lib/library'
+  import { title, type Item } from './lib/library'
   import type { Point } from './lib/model'
   import {
     centered,
@@ -19,12 +19,11 @@
 
   let {
     item,
-    revision,
     position,
     total,
     preview,
     onclose,
-  }: { item: Item; revision: number; position: number; total: number; preview: boolean; onclose: () => void } = $props()
+  }: { item: Item; position: number; total: number; preview: boolean; onclose: () => void } = $props()
 
   const MAX_ZOOM = 16
   const ZOOM_STEP = 1.25
@@ -33,7 +32,8 @@
 
   let src = $state('')
   let bytes = $state(0)
-  let natural = $state({ width: 0, height: 0 })
+  let naturalWidth = $state(0)
+  let naturalHeight = $state(0)
   let failed = $state('')
   let stageWidth = $state(0)
   let stageHeight = $state(0)
@@ -43,11 +43,10 @@
   let panning: { start: Point; origin: Point; moved: boolean } | null = null
 
   const entry = $derived(item.entry)
-  const key = $derived(`${revision}:${entryKey(item.entry)}`)
   const margin = $derived(preview ? 0 : 16)
-  const view = $derived({ x: 0, y: 0, width: natural.width, height: natural.height })
+  const view = $derived({ x: 0, y: 0, width: naturalWidth, height: naturalHeight })
   const stageSize = $derived({ width: stageWidth, height: stageHeight })
-  const fit = $derived(natural.width ? fitScale(view, stageSize, margin) : 1)
+  const fit = $derived(naturalWidth ? fitScale(view, stageSize, margin) : 1)
   const scale = $derived(zoom ?? fit)
   const at = $derived(clampOrigin(origin ?? centered(view, stageSize, scale), view, stageSize, scale, margin))
 
@@ -68,7 +67,7 @@
   }
 
   function onWheel(event: WheelEvent & { currentTarget: Element }) {
-    if (!natural.width) return
+    if (!naturalWidth) return
     event.preventDefault()
     if (event.ctrlKey || event.metaKey) {
       setZoom(scale * wheelZoom(event, ZOOM_STEP), offsetIn(event.currentTarget, event))
@@ -101,6 +100,10 @@
     if (clicked) setZoom(zoom === null && fit < 1 ? 1 : null, stage && offsetIn(stage, event))
   }
 
+  function closeOutside(event: MouseEvent) {
+    if (!(event.target instanceof HTMLImageElement)) onclose()
+  }
+
   function onKeyDown(event: KeyboardEvent) {
     const action = KEYS.get(eventCombo(event))
     if (action === 'zoom_in') setZoom(stepScale(scale, ZOOM_STEP))
@@ -110,18 +113,11 @@
     event.preventDefault()
   }
 
-  $effect(() => {
-    void key
-    const current = untrack(() => item)
+  onMount(() => {
     let url = ''
     let cancelled = false
-    src = ''
-    failed = ''
-    natural = { width: 0, height: 0 }
-    zoom = null
-    origin = null
-    if (current.exists) {
-      image(current.entry)
+    if (item.exists) {
+      image(item.entry)
         .then((data) => {
           if (cancelled) return
           bytes = data.byteLength
@@ -139,20 +135,18 @@
   })
 </script>
 
-<svelte:window onkeydown={onKeyDown} />
-
-<!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
   class="viewer"
   class:preview
   role="dialog"
   aria-label={preview ? 'Preview' : 'Viewer'}
   tabindex="-1"
-  onclick={onclose}
+  onclick={closeOutside}
+  onkeydown={onKeyDown}
+  {@attach (node) => node.focus()}
 >
   <div class="stage" bind:this={stage} onwheel={onWheel} bind:clientWidth={stageWidth} bind:clientHeight={stageHeight}>
     {#if src}
-      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
       <img
         {src}
         alt={title(entry)}
@@ -160,14 +154,11 @@
         class:zoomed={zoom !== null}
         style:left="{-at.x * scale}px"
         style:top="{-at.y * scale}px"
-        style:width="{natural.width * scale}px"
-        style:height="{natural.height * scale}px"
-        style:visibility={natural.width ? 'visible' : 'hidden'}
-        onload={(event) => {
-          const image = event.currentTarget as HTMLImageElement
-          natural = { width: image.naturalWidth, height: image.naturalHeight }
-        }}
-        onclick={(event) => event.stopPropagation()}
+        style:width="{naturalWidth * scale}px"
+        style:height="{naturalHeight * scale}px"
+        style:visibility={naturalWidth ? 'visible' : 'hidden'}
+        bind:naturalWidth
+        bind:naturalHeight
         onpointerdown={onPointerDown}
         onpointermove={onPointerMove}
         onpointerup={onPointerUp}
@@ -179,9 +170,9 @@
   </div>
   <footer>
     {#if preview}
-      <strong>{entry.path ? fileName(entry.path) : title(entry)}</strong>
+      <strong>{title(entry)}</strong>
     {:else}
-      {#if natural.width}<span>{natural.width} × {natural.height}</span>{/if}
+      {#if naturalWidth}<span>{naturalWidth} × {naturalHeight}</span>{/if}
       {#if src}<span>{megabytes(bytes)}</span>{/if}
     {/if}
     {#if src}<span class="zoom">{Math.round(scale * 100)} %</span>{/if}
