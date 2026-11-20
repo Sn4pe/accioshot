@@ -73,6 +73,7 @@ fn crop(png: &[u8], area: Area, layout: &[Area]) -> Result<Vec<u8>> {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Monitor {
     x: i32,
     y: i32,
@@ -81,6 +82,8 @@ struct Monitor {
     scale: f64,
     transform: u32,
     focused: bool,
+    active_workspace: Workspace,
+    special_workspace: Workspace,
 }
 
 impl Monitor {
@@ -129,13 +132,6 @@ struct Workspace {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct MonitorWorkspaces {
-    active_workspace: Workspace,
-    special_workspace: Workspace,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct Client {
     at: [i32; 2],
     size: [i32; 2],
@@ -149,8 +145,7 @@ struct Client {
 
 /// The windows on screen, topmost first.
 pub fn visible_windows() -> Result<Vec<Area>> {
-    let monitors: Vec<MonitorWorkspaces> = hyprctl("monitors")?;
-    let visible: Vec<i32> = monitors
+    let visible: Vec<i32> = monitors()?
         .iter()
         .flat_map(|monitor| [monitor.active_workspace.id, monitor.special_workspace.id])
         .collect();
@@ -210,6 +205,8 @@ mod tests {
             scale,
             transform,
             focused: false,
+            active_workspace: Workspace { id: 1 },
+            special_workspace: Workspace { id: 0 },
         }
     }
 
@@ -246,6 +243,16 @@ mod tests {
             "focusHistoryID":7}]"#;
         let clients: Vec<Client> = serde_json::from_str(text).unwrap();
         assert_eq!(clients[0].focus_history_id, 7);
+    }
+
+    #[test]
+    fn hyprland_monitor_json_parses() {
+        let text = r#"[{"id":0,"name":"DP-1","x":1920,"y":0,"width":2560,"height":1440,"scale":1.25,
+            "transform":0,"focused":true,"activeWorkspace":{"id":2,"name":"2"},
+            "specialWorkspace":{"id":0,"name":""}}]"#;
+        let monitors: Vec<Monitor> = serde_json::from_str(text).unwrap();
+        assert_eq!(monitors[0].active_workspace.id, 2);
+        assert_eq!(monitors[0].area(), Area::new(1920.0, 0.0, 2048.0, 1152.0));
     }
 
     #[test]
