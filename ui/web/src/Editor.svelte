@@ -580,8 +580,12 @@
   }
 
   async function finishDiscard() {
-    await rememberState()
-    await invoke('discard', { loaded: image !== null })
+    try {
+      await rememberState()
+      await invoke('discard', { loaded: image !== null })
+    } catch (error) {
+      failure = String(error)
+    }
   }
 
   async function finish(command: 'save' | 'copy') {
