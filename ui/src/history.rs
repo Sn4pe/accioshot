@@ -13,8 +13,8 @@ use accioshot::config::HistoryConfig;
 use accioshot::history::{self, Entry};
 use image::ImageFormat;
 use serde::{Deserialize, Serialize};
-use tauri::State;
 use tauri::ipc::Response;
+use tauri::{AppHandle, Manager, State};
 
 /// The entries last shown. Commands only act on these: what a page asks to read, copy, open or
 /// delete must be something the history really holds.
@@ -80,8 +80,21 @@ pub enum Part {
     Folder,
 }
 
+async fn blocking<T: Send + 'static>(
+    app: AppHandle,
+    run: impl FnOnce(&Library) -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(move || run(&app.state::<Library>()))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
 #[tauri::command]
-pub fn history_items(library: State<Library>) -> Result<Items, String> {
+pub async fn history_items(app: AppHandle) -> Result<Items, String> {
+    blocking(app, items).await
+}
+
+fn items(library: &Library) -> Result<Items, String> {
     let entries = history::recent(library.config.max_items);
     let items = visible(entries, library.config.filter_missing_files);
     *library.entries.lock().map_err(|e| e.to_string())? =
@@ -104,10 +117,13 @@ fn visible(entries: Vec<Entry>, filter_missing: bool) -> Vec<Item> {
         .collect()
 }
 
-/// Decoding a big capture takes a while, so this runs off the main thread.
-#[tauri::command(async)]
-pub fn thumbnail(entry: Entry, library: State<Library>) -> Result<Response, String> {
-    library.check(&entry)?;
+#[tauri::command]
+pub async fn thumbnail(entry: Entry, app: AppHandle) -> Result<Response, String> {
+    blocking(app, move |library| thumbnail_of(&entry, library)).await
+}
+
+fn thumbnail_of(entry: &Entry, library: &Library) -> Result<Response, String> {
+    library.check(entry)?;
     let path = entry.path.as_deref().ok_or("this capture has no file")?;
     let size = (
         library.config.thumbnail_width,
@@ -160,18 +176,26 @@ fn store(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     accioshot::fs::write_atomically(path, bytes, 0o600)
 }
 
-#[tauri::command(async)]
-pub fn image(entry: Entry, library: State<Library>) -> Result<Response, String> {
-    library.check(&entry)?;
+#[tauri::command]
+pub async fn image(entry: Entry, app: AppHandle) -> Result<Response, String> {
+    blocking(app, move |library| image_of(&entry, library)).await
+}
+
+fn image_of(entry: &Entry, library: &Library) -> Result<Response, String> {
+    library.check(entry)?;
     let path = entry.path.as_deref().ok_or("this capture has no file")?;
     std::fs::read(path)
         .map(Response::new)
         .map_err(|error| format!("cannot read {}: {error}", path.display()))
 }
 
-#[tauri::command(async)]
-pub fn copy_entry(entry: Entry, part: Part, library: State<Library>) -> Result<(), String> {
-    library.check(&entry)?;
+#[tauri::command]
+pub async fn copy_entry(entry: Entry, part: Part, app: AppHandle) -> Result<(), String> {
+    blocking(app, move |library| copy_part(&entry, part, library)).await
+}
+
+fn copy_part(entry: &Entry, part: Part, library: &Library) -> Result<(), String> {
+    library.check(entry)?;
     match part {
         Part::Image => {
             let path = entry.path.as_deref().ok_or("this capture has no file")?;
@@ -212,9 +236,13 @@ fn copy(args: &[&std::ffi::OsStr], text: &str) -> Result<(), String> {
 
 static EDITS: AtomicUsize = AtomicUsize::new(0);
 
-#[tauri::command(async)]
-pub fn edit_entry(entry: Entry, library: State<Library>) -> Result<(), String> {
-    library.check(&entry)?;
+#[tauri::command]
+pub async fn edit_entry(entry: Entry, app: AppHandle) -> Result<(), String> {
+    blocking(app, move |library| edit(&entry, library)).await
+}
+
+fn edit(entry: &Entry, library: &Library) -> Result<(), String> {
+    library.check(entry)?;
     let path = entry
         .path
         .as_deref()
@@ -232,7 +260,7 @@ pub fn edit_entry(entry: Entry, library: State<Library>) -> Result<(), String> {
         .map_err(|error| format!("cannot open the editor: {error}"))?;
     let result = if !output.exists() {
         Ok(())
-    } else if library.check(&entry).is_err() || !path.exists() {
+    } else if library.check(entry).is_err() || !path.exists() {
         Err("the capture was removed while it was being edited".to_string())
     } else if copy_only.exists() {
         copy(&[std::ffi::OsStr::new("--image"), output.as_os_str()], "")
