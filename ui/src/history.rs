@@ -42,6 +42,17 @@ impl Library {
             false => Err("this capture is no longer in the history".to_string()),
         }
     }
+
+    pub fn holds_files(&self, files: &[PathBuf]) -> bool {
+        let Ok(entries) = self.entries.lock() else {
+            return false;
+        };
+        files.iter().all(|file| {
+            entries
+                .iter()
+                .any(|entry| entry.path.as_ref() == Some(file))
+        })
+    }
 }
 
 #[derive(Serialize)]
@@ -361,6 +372,18 @@ mod tests {
                 .check(&entry(Some("/etc/passwd".into()), None))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn only_files_on_show_can_be_dragged() {
+        let library = Library::new(HistoryConfig::default());
+        library
+            .entries
+            .lock()
+            .unwrap()
+            .push(entry(Some("/shots/a.png".into()), None));
+        assert!(library.holds_files(&["/shots/a.png".into()]));
+        assert!(!library.holds_files(&["/shots/a.png".into(), "/etc/passwd".into()]));
     }
 
     #[test]

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+mod drag;
 mod editor;
 mod history;
 mod preferences;
@@ -142,7 +143,7 @@ fn main() {
                     Config::default()
                 });
                 builder = builder
-                    .plugin(tauri_plugin_drag::init())
+                    .plugin(drag::init())
                     .manage(history::Library::new(config.history))
                     .invoke_handler(tauri::generate_handler![
                         window_name,
