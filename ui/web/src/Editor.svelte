@@ -106,7 +106,7 @@
   let nextId = 1
   let settings = $state.raw<Settings | null>(null)
   let keys = new Map<string, Action>()
-  let image = $state.raw<HTMLImageElement | null>(null)
+  let image = $state.raw<ImageBitmap | null>(null)
   let failure = $state('')
   let saving = $state(false)
   let confirmingDiscard = $state(false)
@@ -141,7 +141,7 @@
   let nudged: string | null = null
 
   const shown = $derived(preview ?? doc)
-  const size = $derived(image ? { width: image.naturalWidth, height: image.naturalHeight } : { width: 1, height: 1 })
+  const size = $derived(image ? { width: image.width, height: image.height } : { width: 1, height: 1 })
   const view = $derived(viewRect(shown, size))
   const stageSize = $derived({ width: stageWidth, height: stageHeight })
   const fit = $derived(fitScale(view, stageSize, STAGE_MARGIN))
@@ -785,13 +785,9 @@
       step = 'read_image'
       const bytes = await invoke<ArrayBuffer>('read_image')
       step = 'decode'
-      const url = URL.createObjectURL(new Blob([bytes], { type: 'image/png' }))
-      const element = new Image()
-      element.src = url
-      await element.decode()
-      URL.revokeObjectURL(url)
+      const decoded = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
       zoom = loaded.initial_zoom === 'fit' ? null : Math.min(loaded.initial_zoom, loaded.max_zoom)
-      image = element
+      image = decoded
       failure = ''
     } catch (error) {
       failure = `${error}. ${CLOSE_HINT}`
