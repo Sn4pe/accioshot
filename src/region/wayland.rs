@@ -78,12 +78,14 @@ pub fn select(
 
     for _ in 0..MAX_ROUNDTRIPS {
         queue.roundtrip(&mut overlay)?;
-        if overlay.output_state.outputs().all(|output| {
-            overlay
-                .output_state
-                .info(&output)
-                .is_some_and(|info| info.logical_position.is_some() && info.logical_size.is_some())
-        }) {
+        let mut outputs = overlay.output_state.outputs().peekable();
+        if outputs.peek().is_some()
+            && outputs.all(|output| {
+                overlay.output_state.info(&output).is_some_and(|info| {
+                    info.logical_position.is_some() && info.logical_size.is_some()
+                })
+            })
+        {
             break;
         }
     }
