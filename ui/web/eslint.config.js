@@ -29,6 +29,7 @@ const core = { name: '@tauri-apps/api/core', message: 'Only src/ipc.ts imports @
 const pure = [
   { group: ['@tauri-apps/api', '@tauri-apps/api/*'], message: 'src/lib is pure, Tauri goes through src/ipc.ts.' },
   { group: ['*.svelte'], message: 'src/lib is pure, it imports no components.' },
+  { group: ['svelte', 'svelte/*'], message: 'src/lib is pure, runes and Svelte code live outside it.' },
 ]
 
 export default ts.config(
