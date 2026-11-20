@@ -12,6 +12,8 @@ use serde_json::Value;
 
 use crate::Result;
 
+const MAX_DEPTH: usize = 64;
+
 pub struct Response {
     pub text: String,
     pub url: String,
@@ -29,7 +31,7 @@ pub struct Parser<'a> {
 impl Parser<'_> {
     pub fn parse(&self, text: &str) -> Result<String> {
         let chars: Vec<char> = text.chars().collect();
-        Ok(self.parse_from(&chars, false, 0)?.0)
+        Ok(self.parse_from(&chars, false, 0, 0)?.0)
     }
 
     fn parse_from(
@@ -37,7 +39,11 @@ impl Parser<'_> {
         text: &[char],
         is_function: bool,
         start: usize,
+        depth: usize,
     ) -> Result<(String, usize)> {
+        if depth > MAX_DEPTH {
+            return Err(format!("templates cannot nest more than {MAX_DEPTH} levels").into());
+        }
         let mut output = String::new();
         let mut escape = false;
         let mut i = start;
@@ -46,7 +52,7 @@ impl Parser<'_> {
             if !escape {
                 match c {
                     '{' => {
-                        let (parsed, end) = self.parse_from(text, true, i + 1)?;
+                        let (parsed, end) = self.parse_from(text, true, i + 1, depth + 1)?;
                         output.push_str(&parsed);
                         i = end + 1;
                         continue;
@@ -60,7 +66,7 @@ impl Parser<'_> {
                     ':' if is_function => {
                         let mut parameters = Vec::new();
                         loop {
-                            let (parsed, end) = self.parse_from(text, false, i + 1)?;
+                            let (parsed, end) = self.parse_from(text, false, i + 1, depth + 1)?;
                             parameters.push(parsed);
                             i = end;
                             if text.get(i) != Some(&'|') {
@@ -351,6 +357,29 @@ mod tests {
         assert!(with_response("", "{xml:/a}").is_err());
         assert!(with_response("", "{nope}").is_err());
         assert!(with_response("", "{}").is_err());
+    }
+
+    #[test]
+    fn deep_nesting_fails_instead_of_overflowing() {
+        assert!(Parser::default().parse(&"{".repeat(100_000)).is_err());
+        assert!(
+            Parser::default()
+                .parse(&"{base64:".repeat(100_000))
+                .is_err()
+        );
+        assert_eq!(
+            with_response("", "{base64:{base64:a}}").unwrap(),
+            "WVE9PQ=="
+        );
+    }
+
+    #[test]
+    fn top_level_delimiters_end_the_text_like_sharex() {
+        assert_eq!(
+            with_response("", "https://x.test/a|b").unwrap(),
+            "https://x.test/a"
+        );
+        assert_eq!(with_response("", "a}b").unwrap(), "a");
     }
 
     #[test]
