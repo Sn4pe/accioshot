@@ -72,6 +72,10 @@ export default ts.config(
     rules: { 'no-restricted-imports': ['error', { paths: [untrack, core], patterns: pure }] },
   },
   {
+    files: ['src/History.svelte'],
+    rules: { 'no-restricted-globals': ['error', ...timers.filter(({ name }) => name !== 'setTimeout')] },
+  },
+  {
     files: ['src/ipc.ts'],
     rules: { 'no-restricted-imports': ['error', { paths: [untrack] }] },
   },

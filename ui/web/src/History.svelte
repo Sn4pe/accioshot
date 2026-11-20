@@ -7,6 +7,8 @@
   import { eventCombo, withCtrl } from './lib/keys'
   import { byDay, entryKey, matches, pick, title, unique, type Entry, type Item } from './lib/library'
 
+  const NOTE_MS = 2500
+
   let items = $state.raw<Item[] | null>(null)
   let width = $state(250)
   let height = $state(150)
@@ -16,6 +18,7 @@
   let confirming = $state(false)
   let note = $state('')
   let failure = $state('')
+  let noteTimer: ReturnType<typeof setTimeout> | undefined
   let revision = $state(0)
   let viewing = $state<'preview' | 'full' | null>(null)
   let swallowSpace = false
@@ -46,6 +49,8 @@
   function say(text: string) {
     note = text
     failure = ''
+    clearTimeout(noteTimer)
+    noteTimer = setTimeout(() => (note = ''), NOTE_MS)
   }
 
   async function copy(part: Part, done: string) {
@@ -90,7 +95,6 @@
 
   function setSelection(next: Set<string>) {
     selected = next
-    note = ''
     if (next.size !== 1) viewing = null
   }
 
@@ -200,7 +204,10 @@
     }
   }
 
-  onMount(refresh)
+  onMount(() => {
+    void refresh()
+    return () => clearTimeout(noteTimer)
+  })
 </script>
 
 <svelte:window
