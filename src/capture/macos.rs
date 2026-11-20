@@ -38,7 +38,7 @@ pub async fn screen() -> Result<Vec<u8>> {
 }
 
 pub async fn window() -> Result<Vec<u8>> {
-    let id = frontmost_window()?.id;
+    let (id, _) = frontmost_window()?;
     in_temporary_dir(|dir| {
         let file = dir.join("capture.png");
         run(&[format!("-l{id}").as_ref(), "-o".as_ref(), file.as_os_str()])?;
@@ -209,12 +209,6 @@ fn stitch(parts: &[(Bounds, RgbaImage)]) -> Result<RgbaImage> {
     Ok(canvas)
 }
 
-struct FrontWindow {
-    id: i64,
-    title: String,
-    process: String,
-}
-
 /// Layer 0 is where normal windows live, in order from the top.
 fn normal_windows() -> Result<Vec<CFDictionary<CFString, CFType>>> {
     let options = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
@@ -234,16 +228,16 @@ fn normal_windows() -> Result<Vec<CFDictionary<CFString, CFType>>> {
 }
 
 /// shortcut: the topmost normal window, a floating one of another app can beat the focused one.
-fn frontmost_window() -> Result<FrontWindow> {
+fn frontmost_window() -> Result<(i64, Window)> {
     let windows = normal_windows()?;
     let window = windows.first().ok_or("no active window")?;
-    Ok(FrontWindow {
-        id: number(window, unsafe { kCGWindowNumber }).ok_or("the active window has no number")?
-            as i64,
+    let id = number(window, unsafe { kCGWindowNumber }).ok_or("the active window has no number")?;
+    let names = Window {
         // Hidden from apps without the screen recording permission.
         title: text(window, unsafe { kCGWindowName }).unwrap_or_default(),
         process: text(window, unsafe { kCGWindowOwnerName }).unwrap_or_default(),
-    })
+    };
+    Ok((id as i64, names))
 }
 
 fn value(window: &CFDictionary<CFString, CFType>, key: CFStringRef) -> Option<ItemRef<'_, CFType>> {
@@ -261,11 +255,7 @@ fn text(window: &CFDictionary<CFString, CFType>, key: CFStringRef) -> Option<Str
 
 /// None without a window, a name pattern is no reason to fail a capture.
 pub fn active_window_names() -> Option<Window> {
-    let window = frontmost_window().ok()?;
-    Some(Window {
-        title: window.title,
-        process: window.process,
-    })
+    frontmost_window().ok().map(|(_, window)| window)
 }
 
 #[cfg(test)]
