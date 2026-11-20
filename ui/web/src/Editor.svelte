@@ -35,6 +35,7 @@
     type Tool,
   } from './lib/model'
   import { dashedRect, exportPng, imageRect, LINE_HEIGHT, measureText, renderDoc, renderSelection, viewRect } from './lib/render'
+  import { cursorFor } from './lib/tools'
   import { centered, clampOrigin, fitScale, stepScale, zoomAt } from './lib/viewport'
 
   type Settings = {
@@ -209,11 +210,7 @@
     commitText()
     tool = next
     selectedIds = []
-    cursor = toolCursor()
-  }
-
-  function toolCursor() {
-    return tool === 'Select' ? 'default' : 'crosshair'
+    cursor = cursorFor(tool)
   }
 
   function screenAt(event: MouseEvent): Point {
@@ -449,7 +446,7 @@
     if (!current) return
     switch (current.kind) {
       case 'pan':
-        cursor = panKey ? 'grab' : toolCursor()
+        cursor = panKey ? 'grab' : cursorFor(tool)
         break
       case 'draw':
         if (draft && longEnough(draft)) {
@@ -501,7 +498,7 @@
     }
     const tolerance = 6 / scale
     if (selected && hitHandle(selected, p, tolerance + 2 / scale)) cursor = 'grab'
-    else if (tool !== 'Select') cursor = tool === 'Text' ? 'text' : 'crosshair'
+    else if (tool !== 'Select') cursor = cursorFor(tool)
     else cursor = hitTop(doc.annotations, p, tolerance) ? 'move' : 'default'
   }
 
@@ -567,7 +564,7 @@
     preview = null
     cropDraft = null
     marquee = null
-    cursor = panKey ? 'grab' : toolCursor()
+    cursor = panKey ? 'grab' : cursorFor(tool)
   }
 
   function requestDiscard() {
@@ -668,7 +665,7 @@
 
   function releasePan() {
     panKey = null
-    if (!gesture) cursor = toolCursor()
+    if (!gesture) cursor = cursorFor(tool)
   }
 
   function onTextKey(event: KeyboardEvent) {
@@ -781,7 +778,7 @@
         if (isTool(state?.tool)) tool = state.tool
         if (state?.styles) styles = state.styles
       }
-      cursor = tool === 'Select' ? 'default' : 'crosshair'
+      cursor = cursorFor(tool)
       step = 'read_image'
       const bytes = await invoke<ArrayBuffer>('read_image')
       step = 'decode'
