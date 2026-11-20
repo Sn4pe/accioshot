@@ -22,7 +22,6 @@ pub fn path() -> Result<PathBuf> {
     Ok(dir.join("accioshot/history.jsonl"))
 }
 
-/// Removing rewrites the file, so a capture appending at that moment has to wait for it.
 fn lock(path: &Path) -> Result<File> {
     let file = OpenOptions::new()
         .create(true)
@@ -45,7 +44,6 @@ fn append_to(path: &Path, entry: &Entry) -> Result<()> {
     let _lock = lock(path)?;
     let mut line = serde_json::to_string(entry)?;
     line.push('\n');
-    // 0600: deletion URLs let anyone remove the upload.
     OpenOptions::new()
         .create(true)
         .append(true)
@@ -55,7 +53,6 @@ fn append_to(path: &Path, entry: &Entry) -> Result<()> {
     Ok(())
 }
 
-/// Removes the entries still there. Damaged lines stay, they may be someone's only record.
 pub fn remove(entries: &[Entry]) -> Result<bool> {
     remove_from(&path()?, entries)
 }
@@ -72,21 +69,10 @@ fn remove_from(path: &Path, entries: &[Entry]) -> Result<bool> {
     if kept.len() == text.len() {
         return Ok(false);
     }
-    let temporary = path.with_extension("partial");
-    let _ = std::fs::remove_file(&temporary);
-    // 0600: deletion URLs let anyone remove the upload.
-    OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .mode(0o600)
-        .open(&temporary)?
-        .write_all(kept.as_bytes())?;
-    std::fs::rename(temporary, path)?;
+    crate::fs::write_atomically(path, kept.as_bytes(), 0o600)?;
     Ok(true)
 }
 
-/// The last `count` entries, newest first. A missing file is an empty history and damaged lines
-/// are skipped, a half written line should not hide the rest.
 pub fn recent(count: usize) -> Vec<Entry> {
     path().map_or_else(|_| Vec::new(), |path| recent_from(&path, count))
 }
@@ -118,7 +104,7 @@ mod tests {
 
     fn temp_file(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("accioshot-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::remove_dir_all(&dir).ok();
         dir.join("history.jsonl")
     }
 
@@ -176,7 +162,7 @@ mod tests {
             })
         };
         for index in 0..100 {
-            let _ = remove_from(&file, &[entry(&format!("x{index}"))]);
+            remove_from(&file, &[entry(&format!("x{index}"))]).ok();
         }
         remove_from(&file, &[entry("gone")]).unwrap();
         writer.join().unwrap();

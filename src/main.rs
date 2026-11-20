@@ -3,7 +3,6 @@
 mod capture;
 mod clipboard;
 mod daemon;
-mod editor;
 mod names;
 mod notify;
 mod region;
@@ -14,10 +13,9 @@ use std::error::Error;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::time::Duration;
 
-use accioshot::{OPENER, Result, config, history};
+use accioshot::{Result, config, editor, history};
 use clap::{Args, Parser, Subcommand};
 
 use config::{AfterCapture, AfterUpload, Config};
@@ -31,11 +29,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Take a screenshot. Prints the URL if uploaded, otherwise the saved path.
+    #[command(about = "Take a screenshot. Prints the URL if uploaded, otherwise the saved path")]
     Capture(CaptureArgs),
-    /// Run the tray icon, on macOS also the region shortcut
+    #[command(about = "Run the tray icon, on macOS also the region shortcut")]
     Daemon,
-    /// Copy text from stdin to the clipboard, or an image with --image
+    #[command(about = "Copy text from stdin to the clipboard, or an image with --image")]
     Copy {
         #[arg(long, value_name = "PNG")]
         image: Option<PathBuf>,
@@ -45,24 +43,36 @@ enum Command {
 #[derive(Args)]
 struct CaptureArgs {
     mode: capture::Mode,
-    /// Save to this directory. Any flag replaces the actions in the config
-    #[arg(long, value_name = "DIR")]
+    #[arg(
+        long,
+        value_name = "DIR",
+        help = "Save to this directory. Any flag replaces the actions in the config"
+    )]
     save: Option<PathBuf>,
-    /// Copy to the clipboard: the URL if uploading, otherwise the image
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Copy to the clipboard: the URL if uploading, otherwise the image"
+    )]
     copy: bool,
-    /// Open the capture in the editor first, the other actions get the edited image
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Open the capture in the editor first, the other actions get the edited image"
+    )]
     edit: bool,
-    /// Upload with a .sxcu file: a path, or a name in ~/.config/accioshot/uploaders
-    #[arg(long, value_name = "UPLOADER")]
+    #[arg(
+        long,
+        value_name = "UPLOADER",
+        help = "Upload with a .sxcu file: a path, or a name in ~/.config/accioshot/uploaders"
+    )]
     upload: Option<String>,
-    /// Seconds to wait before capturing, for menus and tooltips. Replaces `delay` in the config
-    #[arg(long, value_name = "SECONDS")]
+    #[arg(
+        long,
+        value_name = "SECONDS",
+        help = "Seconds to wait before capturing, for menus and tooltips. Replaces `delay` in the config"
+    )]
     delay: Option<f64>,
 }
 
-/// An app bundle gets opened without arguments, and that means running in the background.
 fn command() -> Command {
     let in_bundle = cfg!(target_os = "macos")
         && std::env::args_os().len() == 1
@@ -83,14 +93,13 @@ fn main() {
     if let Err(error) = result {
         let message = error.to_string();
         eprintln!("accioshot: {message}");
-        if is_capture && message != capture::CANCELLED {
+        if is_capture && !error.is::<capture::Stopped>() {
             notify_failure(&message);
         }
         std::process::exit(1);
     }
 }
 
-/// Here and not in the UI: on Wayland the clipboard is served by a fork, and that process has threads.
 fn copy(image: Option<PathBuf>) -> Result<()> {
     match image {
         Some(path) => clipboard::copy_image(&fs::read(path)?),
@@ -102,20 +111,18 @@ fn copy(image: Option<PathBuf>) -> Result<()> {
     }
 }
 
-/// From a key binding nobody sees stderr.
 fn notify_failure(message: &str) {
     let enabled = Config::load().map_or(true, |config| config.notifications);
     if enabled
         && let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
+        && let Err(error) = runtime.block_on(notify::send("Capture failed", message, None))
     {
-        let _ = runtime.block_on(notify::send("Capture failed", message, None));
+        eprintln!("accioshot: cannot show the notification: {error}");
     }
 }
 
-/// What to do with a capture. Any flag replaces the whole config, so a script gets exactly what
-/// it asked for.
 #[derive(Debug, PartialEq)]
 struct Actions {
     edit: bool,
@@ -163,14 +170,12 @@ impl Actions {
                 upload,
             }
         };
-        // A capture nothing happens to would be lost.
         if actions.save.is_none() && !actions.copy_image && actions.upload.is_none() {
             actions.save = Some(config.pictures_dir()?);
         }
         Ok(actions)
     }
 
-    /// The editor's copy key: to the clipboard and nothing else.
     fn only_copy(self) -> Actions {
         Actions {
             edit: self.edit,
@@ -183,7 +188,6 @@ impl Actions {
     }
 }
 
-/// For a failure that would lose the only copy of the capture.
 fn keep_capture(config: &Config, file_name: &str, png: &[u8], error: &dyn Error) -> Box<dyn Error> {
     match config
         .pictures_dir()
@@ -209,13 +213,11 @@ fn run(args: CaptureArgs) -> Result<()> {
         .enable_all()
         .build()?;
 
-    // Load first, a broken uploader should fail before the user picks a region.
     let mut uploader = actions.upload.as_deref().map(sxcu::load).transpose()?;
     let Some(selecting) = daemon::lock("accioshot-capture.lock")? else {
-        return Ok(());
+        return Err(capture::Stopped::Busy.into());
     };
     std::thread::sleep(delay);
-    // Before the selector or the editor take the focus.
     let window = names::needs_window(&config.name_pattern)
         .then(capture::active_window_names)
         .flatten();
@@ -233,16 +235,24 @@ fn run(args: CaptureArgs) -> Result<()> {
         names::file_name(&config.name_pattern, &source)
     };
     if actions.edit {
-        let edited = editor::edit(&config.editor.command, &png)
-            .map_err(|error| keep_capture(&config, &name_for(&png), &png, error.as_ref()))?
-            .ok_or(capture::CANCELLED)?;
+        let edited = match editor::edit(&config.editor.command, &png) {
+            Ok(edited) => edited.ok_or(capture::Stopped::Cancelled)?,
+            Err(error) => {
+                return Err(keep_capture(
+                    &config,
+                    &name_for(&png)?,
+                    &png,
+                    error.as_ref(),
+                ));
+            }
+        };
         png = edited.png;
         if edited.copy_only {
             actions = actions.only_copy();
             uploader = None;
         }
     }
-    let file_name = name_for(&png);
+    let file_name = name_for(&png)?;
 
     let saved = actions
         .save
@@ -251,18 +261,18 @@ fn run(args: CaptureArgs) -> Result<()> {
         .transpose()?;
 
     let uploaded = match &uploader {
-        Some(uploader) => {
-            match runtime.block_on(sxcu::upload(uploader, png.clone(), &file_name)) {
-                Ok(uploaded) => Some(uploaded),
-                Err(error) => {
-                    // Don't lose the capture if it only existed for the upload.
-                    return Err(match saved {
-                        Some(_) => error,
-                        None => keep_capture(&config, &file_name, &png, error.as_ref()),
-                    });
-                }
+        Some(uploader) => match runtime.block_on(sxcu::upload(uploader, png.clone(), &file_name)) {
+            Ok(uploaded) => Some(uploaded),
+            Err(error) => {
+                return Err(match &saved {
+                    Some(path) => {
+                        remember(&now.to_rfc3339(), Some(path), None);
+                        error
+                    }
+                    None => keep_capture(&config, &file_name, &png, error.as_ref()),
+                });
             }
-        }
+        },
         None => None,
     };
 
@@ -279,18 +289,7 @@ fn run(args: CaptureArgs) -> Result<()> {
         io::stdout().flush()?;
     }
 
-    if saved.is_some() || uploaded.is_some() {
-        let entry = history::Entry {
-            time: now.to_rfc3339(),
-            path: saved.clone(),
-            url: url.map(str::to_string),
-            deletion_url: deletion_url.map(str::to_string),
-        };
-        // The capture is safe already, a broken history must not fail it.
-        if let Err(error) = history::append(&entry) {
-            eprintln!("accioshot: cannot write the history: {error}");
-        }
-    }
+    remember(&now.to_rfc3339(), saved.as_deref(), uploaded.as_ref());
 
     if actions.open_url
         && let Some(url) = url
@@ -309,7 +308,6 @@ fn run(args: CaptureArgs) -> Result<()> {
         }
     }
 
-    // The fork below needs a single thread.
     drop(runtime);
     if actions.copy_url
         && let Some(uploaded) = uploaded
@@ -318,7 +316,6 @@ fn run(args: CaptureArgs) -> Result<()> {
     } else if actions.copy_image
         && let Err(error) = clipboard::copy_image(&png)
     {
-        // After the editor's copy key the clipboard was the only destination.
         return Err(match saved {
             Some(_) => error,
             None => keep_capture(&config, &file_name, &png, error.as_ref()),
@@ -327,27 +324,34 @@ fn run(args: CaptureArgs) -> Result<()> {
     Ok(())
 }
 
-/// The URL comes from a remote server, so only web links get opened.
-fn open_url(url: &str) {
-    if !(url.starts_with("https://") || url.starts_with("http://")) {
-        eprintln!("accioshot: not opening a non-web URL: {url}");
+fn remember(time: &str, saved: Option<&Path>, uploaded: Option<&sxcu::Uploaded>) {
+    if saved.is_none() && uploaded.is_none() {
         return;
     }
-    let spawned = std::process::Command::new(OPENER)
-        .arg(url)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn();
-    if let Err(error) = spawned {
-        eprintln!("accioshot: cannot run {OPENER}: {error}");
+    let entry = history::Entry {
+        time: time.to_string(),
+        path: saved.map(Path::to_path_buf),
+        url: uploaded.map(|uploaded| uploaded.url.clone()),
+        deletion_url: uploaded.and_then(|uploaded| uploaded.deletion_url.clone()),
+    };
+    if let Err(error) = history::append(&entry) {
+        eprintln!("accioshot: cannot write the history: {error}");
     }
 }
 
-/// Never overwrites: two captures in the same second get a numeric suffix.
+fn open_url(url: &str) {
+    if !accioshot::is_web_url(url) {
+        eprintln!("accioshot: not opening a non-web URL: {url}");
+        return;
+    }
+    if let Err(error) = accioshot::open(url.as_ref()) {
+        eprintln!("accioshot: {error}");
+    }
+}
+
 fn save(dir: &Path, file_name: &str, png: &[u8]) -> Result<PathBuf> {
     fs::create_dir_all(dir)?;
-    let stem = file_name.trim_end_matches(".png");
+    let stem = file_name.strip_suffix(".png").unwrap_or(file_name);
     for attempt in 0..1000 {
         let path = match attempt {
             0 => dir.join(file_name),
@@ -355,7 +359,10 @@ fn save(dir: &Path, file_name: &str, png: &[u8]) -> Result<PathBuf> {
         };
         match OpenOptions::new().write(true).create_new(true).open(&path) {
             Ok(mut file) => {
-                file.write_all(png)?;
+                if let Err(error) = file.write_all(png) {
+                    fs::remove_file(&path).ok();
+                    return Err(error.into());
+                }
                 return Ok(fs::canonicalize(path)?);
             }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
@@ -492,6 +499,15 @@ mod tests {
         assert_ne!(first, second);
         assert_eq!(fs::read(&first).unwrap(), b"first");
         assert_eq!(fs::read(&second).unwrap(), b"second");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn repeated_names_number_only_the_extension() {
+        let dir = std::env::temp_dir().join(format!("accioshot-suffix-{}", std::process::id()));
+        save(&dir, "a.png.png", b"first").unwrap();
+        let second = save(&dir, "a.png.png", b"second").unwrap();
+        assert_eq!(second.file_name().unwrap(), "a.png-1.png");
         fs::remove_dir_all(dir).unwrap();
     }
 }

@@ -1,29 +1,39 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core'
-  import { untrack } from 'svelte'
-  import { entryKey, fileName, title, type Item } from './lib/library'
+  import { image } from './ipc'
+  import { onMount } from 'svelte'
+  import { eventCombo, keymap, withCtrl } from './lib/keys'
+  import { title, type Item } from './lib/library'
   import type { Point } from './lib/model'
-  import { centered, clampOrigin, fitScale, stepScale, zoomAt } from './lib/viewport'
+  import {
+    centered,
+    clampOrigin,
+    fitScale,
+    nextZoom,
+    offsetIn,
+    stepScale,
+    wheelDelta,
+    wheelZoom,
+    zoomAt,
+  } from './lib/viewport'
 
   let {
     item,
-    revision,
     position,
     total,
     preview,
     onclose,
-  }: { item: Item; revision: number; position: number; total: number; preview: boolean; onclose: () => void } = $props()
+  }: { item: Item; position: number; total: number; preview: boolean; onclose: () => void } = $props()
 
   const MAX_ZOOM = 16
   const ZOOM_STEP = 1.25
-  const WHEEL_STEP = 100
-  const WHEEL_LINE = 33
   const DRAG_SLOP = 3
+  const KEYS = keymap({})
 
   let src = $state('')
   let bytes = $state(0)
-  let natural = $state({ width: 0, height: 0 })
+  let naturalWidth = $state(0)
+  let naturalHeight = $state(0)
   let failed = $state('')
   let stageWidth = $state(0)
   let stageHeight = $state(0)
@@ -33,11 +43,10 @@
   let panning: { start: Point; origin: Point; moved: boolean } | null = null
 
   const entry = $derived(item.entry)
-  const key = $derived(`${revision}:${entryKey(item.entry)}`)
   const margin = $derived(preview ? 0 : 16)
-  const view = $derived({ x: 0, y: 0, width: natural.width, height: natural.height })
+  const view = $derived({ x: 0, y: 0, width: naturalWidth, height: naturalHeight })
   const stageSize = $derived({ width: stageWidth, height: stageHeight })
-  const fit = $derived(natural.width ? fitScale(view, stageSize, margin) : 1)
+  const fit = $derived(naturalWidth ? fitScale(view, stageSize, margin) : 1)
   const scale = $derived(zoom ?? fit)
   const at = $derived(clampOrigin(origin ?? centered(view, stageSize, scale), view, stageSize, scale, margin))
 
@@ -45,16 +54,10 @@
     return count >= 1024 * 1024 ? `${(count / 1024 / 1024).toFixed(1)} MB` : `${Math.round(count / 1024)} KB`
   }
 
-  function screenAt(event: MouseEvent): Point {
-    const rect = stage!.getBoundingClientRect()
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top }
-  }
-
   function setZoom(next: number | null, screen: Point = { x: stageWidth / 2, y: stageHeight / 2 }) {
     const least = preview ? fit : fit / 4
-    const limited = next === null ? null : Math.min(Math.max(next, least), MAX_ZOOM)
-    const crossed = limited !== null && zoom !== null && (limited - fit) * (zoom - fit) < 0
-    if (limited === null || crossed || Math.abs(limited - fit) <= fit * 0.001) {
+    const limited = nextZoom(zoom, next, fit, least, MAX_ZOOM)
+    if (limited === null) {
       zoom = null
       origin = null
       return
@@ -63,24 +66,21 @@
     zoom = limited
   }
 
-  function onWheel(event: WheelEvent) {
-    if (!natural.width) return
+  function onWheel(event: WheelEvent & { currentTarget: Element }) {
+    if (!naturalWidth) return
     event.preventDefault()
-    const line = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? WHEEL_LINE : 1
-    if (event.ctrlKey || event.metaKey) {
-      setZoom(scale * ZOOM_STEP ** ((-event.deltaY * line) / WHEEL_STEP), screenAt(event))
+    if (withCtrl(event)) {
+      setZoom(scale * wheelZoom(event, ZOOM_STEP), offsetIn(event.currentTarget, event))
       return
     }
-    const sideways = event.shiftKey && !event.deltaX
-    const dx = (sideways ? event.deltaY : event.deltaX) * line
-    const dy = (sideways ? 0 : event.deltaY) * line
-    origin = { x: at.x + dx / scale, y: at.y + dy / scale }
+    const delta = wheelDelta(event)
+    origin = { x: at.x + delta.x / scale, y: at.y + delta.y / scale }
   }
 
-  function onPointerDown(event: PointerEvent) {
+  function onPointerDown(event: PointerEvent & { currentTarget: Element }) {
     if (event.button !== 0) return
     event.stopPropagation()
-    ;(event.currentTarget as Element).setPointerCapture(event.pointerId)
+    event.currentTarget.setPointerCapture(event.pointerId)
     panning = { start: { x: event.clientX, y: event.clientY }, origin: at, moved: false }
   }
 
@@ -97,37 +97,28 @@
     if (!panning) return
     const clicked = !panning.moved
     panning = null
-    if (clicked) setZoom(zoom === null && fit < 1 ? 1 : null, screenAt(event))
+    if (clicked) setZoom(zoom === null && fit < 1 ? 1 : null, stage && offsetIn(stage, event))
+  }
+
+  function closeOutside(event: MouseEvent) {
+    if (!(event.target instanceof HTMLImageElement)) onclose()
   }
 
   function onKeyDown(event: KeyboardEvent) {
-    if (!(event.ctrlKey || event.metaKey)) return
-    if (event.key === '=' || event.key === '+') setZoom(stepScale(scale, ZOOM_STEP))
-    else if (event.key === '-') setZoom(stepScale(scale, 1 / ZOOM_STEP))
-    else if (event.key === '0') setZoom(null)
+    const action = KEYS.get(eventCombo(event))
+    if (action === 'zoom_in') setZoom(stepScale(scale, ZOOM_STEP))
+    else if (action === 'zoom_out') setZoom(stepScale(scale, 1 / ZOOM_STEP))
+    else if (action === 'zoom_fit') setZoom(null)
     else return
     event.preventDefault()
+    event.stopPropagation()
   }
 
-  $effect(() => {
-    if (!stage) return
-    const target = stage
-    target.addEventListener('wheel', onWheel, { passive: false })
-    return () => target.removeEventListener('wheel', onWheel)
-  })
-
-  $effect(() => {
-    void key
-    const current = untrack(() => item)
+  onMount(() => {
     let url = ''
     let cancelled = false
-    src = ''
-    failed = ''
-    natural = { width: 0, height: 0 }
-    zoom = null
-    origin = null
-    if (current.exists) {
-      invoke<ArrayBuffer>('image', { entry: current.entry })
+    if (item.exists) {
+      image(item.entry)
         .then((data) => {
           if (cancelled) return
           bytes = data.byteLength
@@ -147,11 +138,17 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="viewer" class:preview role="dialog" aria-label={preview ? 'Preview' : 'Viewer'} tabindex="-1" onclick={onclose}>
-  <div class="stage" bind:this={stage} bind:clientWidth={stageWidth} bind:clientHeight={stageHeight}>
+<div
+  class="viewer"
+  class:preview
+  role="dialog"
+  aria-label={preview ? 'Preview' : 'Viewer'}
+  tabindex="-1"
+  onclick={closeOutside}
+  onkeydown={onKeyDown}
+>
+  <div class="stage" bind:this={stage} onwheel={onWheel} bind:clientWidth={stageWidth} bind:clientHeight={stageHeight}>
     {#if src}
-      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
       <img
         {src}
         alt={title(entry)}
@@ -159,14 +156,11 @@
         class:zoomed={zoom !== null}
         style:left="{-at.x * scale}px"
         style:top="{-at.y * scale}px"
-        style:width="{natural.width * scale}px"
-        style:height="{natural.height * scale}px"
-        style:visibility={natural.width ? 'visible' : 'hidden'}
-        onload={(event) => {
-          const image = event.currentTarget as HTMLImageElement
-          natural = { width: image.naturalWidth, height: image.naturalHeight }
-        }}
-        onclick={(event) => event.stopPropagation()}
+        style:width="{naturalWidth * scale}px"
+        style:height="{naturalHeight * scale}px"
+        style:visibility={naturalWidth ? 'visible' : 'hidden'}
+        bind:naturalWidth
+        bind:naturalHeight
         onpointerdown={onPointerDown}
         onpointermove={onPointerMove}
         onpointerup={onPointerUp}
@@ -178,9 +172,9 @@
   </div>
   <footer>
     {#if preview}
-      <strong>{entry.path ? fileName(entry.path) : title(entry)}</strong>
+      <strong>{title(entry)}</strong>
     {:else}
-      {#if natural.width}<span>{natural.width} × {natural.height}</span>{/if}
+      {#if naturalWidth}<span>{naturalWidth} × {naturalHeight}</span>{/if}
       {#if src}<span>{megabytes(bytes)}</span>{/if}
     {/if}
     {#if src}<span class="zoom">{Math.round(scale * 100)} %</span>{/if}

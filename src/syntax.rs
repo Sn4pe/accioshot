@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//
 // Ported from ShareX.UploadersLib/CustomUploader (ShareXSyntaxParser and Functions).
 // Copyright (c) 2007-2026 ShareX Team
 // Copyright (c) 2026 David
@@ -12,6 +11,8 @@ use serde_json::Value;
 
 use crate::Result;
 
+const MAX_DEPTH: usize = 64;
+
 pub struct Response {
     pub text: String,
     pub url: String,
@@ -22,14 +23,20 @@ pub struct Response {
 pub struct Parser<'a> {
     pub file_name: &'a str,
     pub response: Option<&'a Response>,
-    /// Only URL encodes the file name.
-    pub url_encode: bool,
+    pub encode_file_name: bool,
 }
 
-impl Parser<'_> {
+impl<'a> Parser<'a> {
+    pub fn new(file_name: &'a str) -> Parser<'a> {
+        Parser {
+            file_name,
+            ..Default::default()
+        }
+    }
+
     pub fn parse(&self, text: &str) -> Result<String> {
         let chars: Vec<char> = text.chars().collect();
-        Ok(self.parse_from(&chars, false, 0)?.0)
+        Ok(self.parse_from(&chars, false, 0, 0)?.0)
     }
 
     fn parse_from(
@@ -37,7 +44,11 @@ impl Parser<'_> {
         text: &[char],
         is_function: bool,
         start: usize,
+        depth: usize,
     ) -> Result<(String, usize)> {
+        if depth > MAX_DEPTH {
+            return Err(format!("templates cannot nest more than {MAX_DEPTH} levels").into());
+        }
         let mut output = String::new();
         let mut escape = false;
         let mut i = start;
@@ -46,7 +57,7 @@ impl Parser<'_> {
             if !escape {
                 match c {
                     '{' => {
-                        let (parsed, end) = self.parse_from(text, true, i + 1)?;
+                        let (parsed, end) = self.parse_from(text, true, i + 1, depth + 1)?;
                         output.push_str(&parsed);
                         i = end + 1;
                         continue;
@@ -60,7 +71,7 @@ impl Parser<'_> {
                     ':' if is_function => {
                         let mut parameters = Vec::new();
                         loop {
-                            let (parsed, end) = self.parse_from(text, false, i + 1)?;
+                            let (parsed, end) = self.parse_from(text, false, i + 1, depth + 1)?;
                             parameters.push(parsed);
                             i = end;
                             if text.get(i) != Some(&'|') {
@@ -83,54 +94,48 @@ impl Parser<'_> {
     }
 
     fn call(&self, name: &str, parameters: &[String]) -> Result<String> {
-        let required = |count: usize| -> Result<()> {
-            if parameters.len() < count {
-                return Err(format!("{{{name}}} needs at least {count} parameter(s)").into());
-            }
-            Ok(())
+        let missing = |count: usize| -> Box<dyn std::error::Error> {
+            format!("{{{name}}} needs at least {count} parameter(s)").into()
         };
         match name.to_ascii_lowercase().as_str() {
             "" => Err("function name cannot be empty".into()),
-            "filename" if self.url_encode => Ok(url_encode(self.file_name)),
+            "filename" if self.encode_file_name => Ok(url_encode(self.file_name)),
             "filename" => Ok(self.file_name.to_string()),
-            // Only text uploads have an input, a capture never does.
             "input" => Ok(String::new()),
-            "base64" => {
-                required(1)?;
-                Ok(base64(parameters[0].as_bytes()))
-            }
-            "random" => {
-                required(2)?;
-                let nanos = SystemTime::now().duration_since(UNIX_EPOCH)?.subsec_nanos();
-                Ok(parameters[nanos as usize % parameters.len()].clone())
-            }
+            "base64" => match parameters {
+                [text, ..] => Ok(base64(text.as_bytes())),
+                [] => Err(missing(1)),
+            },
+            "random" => match parameters {
+                [_, _, ..] => {
+                    let nanos = SystemTime::now().duration_since(UNIX_EPOCH)?.subsec_nanos();
+                    Ok(parameters[nanos as usize % parameters.len()].clone())
+                }
+                _ => Err(missing(2)),
+            },
             "response" => Ok(self.response()?.text.clone()),
             "responseurl" => Ok(self.response()?.url.clone()),
-            "header" => {
-                required(1)?;
-                let value = self.response()?.headers.get(&parameters[0]);
-                Ok(value
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("")
-                    .to_string())
-            }
-            "json" => {
-                required(1)?;
-                match parameters {
-                    [input, path, ..] => json(input, path),
-                    [path] => json(&self.response()?.text, path),
-                    [] => unreachable!(),
+            "header" => match parameters {
+                [header, ..] => {
+                    let value = self.response()?.headers.get(header);
+                    Ok(value
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("")
+                        .to_string())
                 }
-            }
-            "regex" => {
-                required(1)?;
-                match parameters {
-                    [input, pattern, group, ..] => regex(input, pattern, group),
-                    [pattern, group] => regex(&self.response()?.text, pattern, group),
-                    [pattern] => regex(&self.response()?.text, pattern, ""),
-                    [] => unreachable!(),
-                }
-            }
+                [] => Err(missing(1)),
+            },
+            "json" => match parameters {
+                [input, path, ..] => json(input, path),
+                [path] => json(&self.response()?.text, path),
+                [] => Err(missing(1)),
+            },
+            "regex" => match parameters {
+                [input, pattern, group, ..] => regex(input, pattern, group),
+                [pattern, group] => regex(&self.response()?.text, pattern, group),
+                [pattern] => regex(&self.response()?.text, pattern, ""),
+                [] => Err(missing(1)),
+            },
             "xml" | "inputbox" | "prompt" | "outputbox" | "select" => {
                 Err(format!("{{{name}}} is not supported yet").into())
             }
@@ -156,8 +161,6 @@ fn json(input: &str, path: &str) -> Result<String> {
     })
 }
 
-/// shortcut: supports `a.b[0]['c']`, not JSONPath filters or wildcards. Add them if a real
-/// uploader needs them.
 fn select<'a>(root: &'a Value, path: &str) -> Result<Option<&'a Value>> {
     let path = path
         .strip_prefix("$.")
@@ -212,16 +215,14 @@ fn regex(input: &str, pattern: &str, group: &str) -> Result<String> {
 }
 
 pub fn url_encode(text: &str) -> String {
-    let mut output = String::new();
-    for byte in text.bytes() {
-        match byte {
+    text.bytes()
+        .map(|byte| match byte {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                output.push(byte as char)
+                char::from(byte).to_string()
             }
-            _ => output.push_str(&format!("%{byte:02X}")),
-        }
-    }
-    output
+            _ => format!("%{byte:02X}"),
+        })
+        .collect()
 }
 
 fn base64(bytes: &[u8]) -> String {
@@ -257,7 +258,7 @@ mod tests {
         Parser {
             file_name: "a b.png",
             response: Some(&response),
-            url_encode: true,
+            encode_file_name: true,
         }
         .parse(template)
     }
@@ -351,6 +352,29 @@ mod tests {
         assert!(with_response("", "{xml:/a}").is_err());
         assert!(with_response("", "{nope}").is_err());
         assert!(with_response("", "{}").is_err());
+    }
+
+    #[test]
+    fn deep_nesting_fails_instead_of_overflowing() {
+        assert!(Parser::default().parse(&"{".repeat(100_000)).is_err());
+        assert!(
+            Parser::default()
+                .parse(&"{base64:".repeat(100_000))
+                .is_err()
+        );
+        assert_eq!(
+            with_response("", "{base64:{base64:a}}").unwrap(),
+            "WVE9PQ=="
+        );
+    }
+
+    #[test]
+    fn top_level_delimiters_end_the_text_like_sharex() {
+        assert_eq!(
+            with_response("", "https://x.test/a|b").unwrap(),
+            "https://x.test/a"
+        );
+        assert_eq!(with_response("", "a}b").unwrap(), "a");
     }
 
     #[test]

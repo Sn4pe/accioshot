@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use crate::error::Result;
 use std::fs::{DirBuilder, Metadata};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{Cursor, Write};
-use std::os::unix::fs::DirBuilderExt;
+use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
-use accioshot::config::HistoryConfig;
+use accioshot::config::{Config, HistoryConfig};
+use accioshot::editor;
+use accioshot::fs::{PrivateDir, write_atomically};
 use accioshot::history::{self, Entry};
 use image::ImageFormat;
 use serde::{Deserialize, Serialize};
-use tauri::State;
 use tauri::ipc::Response;
+use tauri::{AppHandle, Manager, State};
 
-/// The entries last shown. Commands only act on these: what a page asks to read, copy, open or
-/// delete must be something the history really holds.
 pub struct Library {
     entries: Mutex<Vec<Entry>>,
     config: HistoryConfig,
@@ -31,17 +31,47 @@ impl Library {
         }
     }
 
-    fn check(&self, entry: &Entry) -> Result<(), String> {
-        match self
-            .entries
-            .lock()
-            .map_err(|e| e.to_string())?
-            .contains(entry)
-        {
+    fn check(&self, entry: &Entry) -> Result<()> {
+        match self.entries.lock()?.contains(entry) {
             true => Ok(()),
-            false => Err("this capture is no longer in the history".to_string()),
+            false => Err("this capture is no longer in the history".into()),
         }
     }
+
+    fn split_known(&self, entries: Vec<Entry>) -> (Vec<Entry>, Vec<String>) {
+        let (known, stale): (Vec<Entry>, Vec<Entry>) = entries
+            .into_iter()
+            .partition(|entry| self.check(entry).is_ok());
+        let failures = stale
+            .iter()
+            .map(|entry| format!("{} is no longer in the history", label(entry)))
+            .collect();
+        (known, failures)
+    }
+
+    pub fn holds_files(&self, files: &[PathBuf]) -> bool {
+        let Ok(entries) = self.entries.lock() else {
+            return false;
+        };
+        files.iter().all(|file| {
+            entries
+                .iter()
+                .any(|entry| entry.path.as_ref() == Some(file))
+        })
+    }
+}
+
+fn file(entry: &Entry) -> Result<&Path> {
+    Ok(entry.path.as_deref().ok_or("this capture has no file")?)
+}
+
+fn label(entry: &Entry) -> String {
+    entry
+        .path
+        .as_ref()
+        .map(|path| path.display().to_string())
+        .or_else(|| entry.url.clone())
+        .unwrap_or_else(|| entry.time.clone())
 }
 
 #[derive(Serialize)]
@@ -54,7 +84,6 @@ pub struct Items {
 #[derive(Serialize)]
 pub struct Item {
     entry: Entry,
-    /// Whether the saved file is still on disk.
     exists: bool,
 }
 
@@ -69,12 +98,22 @@ pub enum Part {
     Folder,
 }
 
+async fn blocking<T: Send + 'static>(
+    app: AppHandle,
+    run: impl FnOnce(&Library) -> Result<T> + Send + 'static,
+) -> Result<T> {
+    tauri::async_runtime::spawn_blocking(move || run(&app.state::<Library>())).await?
+}
+
 #[tauri::command]
-pub fn history_items(library: State<Library>) -> Result<Items, String> {
+pub async fn history_items(app: AppHandle) -> Result<Items> {
+    blocking(app, items).await
+}
+
+fn items(library: &Library) -> Result<Items> {
     let entries = history::recent(library.config.max_items);
     let items = visible(entries, library.config.filter_missing_files);
-    *library.entries.lock().map_err(|e| e.to_string())? =
-        items.iter().map(|item| item.entry.clone()).collect();
+    *library.entries.lock()? = items.iter().map(|item| item.entry.clone()).collect();
     Ok(Items {
         items,
         thumbnail_width: library.config.thumbnail_width,
@@ -93,21 +132,21 @@ fn visible(entries: Vec<Entry>, filter_missing: bool) -> Vec<Item> {
         .collect()
 }
 
-/// Decoding a big capture takes a while, so this runs off the main thread.
-#[tauri::command(async)]
-pub fn thumbnail(entry: Entry, library: State<Library>) -> Result<Response, String> {
-    library.check(&entry)?;
-    let path = entry.path.as_deref().ok_or("this capture has no file")?;
-    let size = (
-        library.config.thumbnail_width,
-        library.config.thumbnail_height,
-    );
-    cached_thumbnail(path, size)
-        .map(Response::new)
-        .map_err(|error| format!("cannot read {}: {error}", path.display()))
+#[tauri::command]
+pub async fn thumbnail(entry: Entry, app: AppHandle) -> Result<Response> {
+    blocking(app, move |library| thumbnail_of(&entry, library)).await
 }
 
-fn cached_thumbnail(path: &Path, size: (u32, u32)) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+fn thumbnail_of(entry: &Entry, library: &Library) -> Result<Response> {
+    library.check(entry)?;
+    let path = file(entry)?;
+    let size = library.config.thumbnail_size();
+    Ok(cached_thumbnail(path, size)
+        .map(Response::new)
+        .map_err(|error| format!("cannot read {}: {error}", path.display()))?)
+}
+
+fn cached_thumbnail(path: &Path, size: (u32, u32)) -> accioshot::Result<Vec<u8>> {
     let file = std::fs::metadata(path)?;
     let cached = thumbnail_path(path, &file, size);
     if let Some(bytes) = cached
@@ -125,7 +164,7 @@ fn cached_thumbnail(path: &Path, size: (u32, u32)) -> Result<Vec<u8>, Box<dyn st
     Ok(bytes)
 }
 
-fn render_thumbnail(path: &Path, size: (u32, u32)) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+fn render_thumbnail(path: &Path, size: (u32, u32)) -> accioshot::Result<Vec<u8>> {
     let mut bytes = Cursor::new(Vec::new());
     image::open(path)?
         .thumbnail(size.0, size.1)
@@ -133,7 +172,6 @@ fn render_thumbnail(path: &Path, size: (u32, u32)) -> Result<Vec<u8>, Box<dyn st
     Ok(bytes.into_inner())
 }
 
-/// Keyed by what makes it stale, so an edited file or another size gets a new one.
 fn thumbnail_path(path: &Path, file: &Metadata, size: (u32, u32)) -> Option<PathBuf> {
     let mut hasher = DefaultHasher::new();
     (path, file.modified().ok(), file.len(), size).hash(&mut hasher);
@@ -143,43 +181,47 @@ fn thumbnail_path(path: &Path, file: &Metadata, size: (u32, u32)) -> Option<Path
 
 fn store(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
-        // 0700: these are small copies of screenshots, they may hold anything.
         DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
     }
-    let temporary = path.with_extension(format!("{}.partial", std::process::id()));
-    std::fs::write(&temporary, bytes)?;
-    std::fs::rename(temporary, path)
+    write_atomically(path, bytes, 0o600)
 }
 
-#[tauri::command(async)]
-pub fn image(entry: Entry, library: State<Library>) -> Result<Response, String> {
-    library.check(&entry)?;
-    let path = entry.path.as_deref().ok_or("this capture has no file")?;
-    std::fs::read(path)
+#[tauri::command]
+pub async fn image(entry: Entry, app: AppHandle) -> Result<Response> {
+    blocking(app, move |library| image_of(&entry, library)).await
+}
+
+fn image_of(entry: &Entry, library: &Library) -> Result<Response> {
+    library.check(entry)?;
+    let path = file(entry)?;
+    Ok(std::fs::read(path)
         .map(Response::new)
-        .map_err(|error| format!("cannot read {}: {error}", path.display()))
+        .map_err(|error| format!("cannot read {}: {error}", path.display()))?)
 }
 
-#[tauri::command(async)]
-pub fn copy_entry(entry: Entry, part: Part, library: State<Library>) -> Result<(), String> {
-    library.check(&entry)?;
+#[tauri::command]
+pub async fn copy_entry(entry: Entry, part: Part, app: AppHandle) -> Result<()> {
+    blocking(app, move |library| copy_part(&entry, part, library)).await
+}
+
+fn copy_part(entry: &Entry, part: Part, library: &Library) -> Result<()> {
+    library.check(entry)?;
     match part {
         Part::Image => {
-            let path = entry.path.as_deref().ok_or("this capture has no file")?;
+            let path = file(entry)?;
             copy(&[std::ffi::OsStr::new("--image"), path.as_os_str()], "")
         }
         Part::Path => {
-            let path = entry.path.as_deref().ok_or("this capture has no file")?;
+            let path = file(entry)?;
             copy(&[], &path.to_string_lossy())
         }
         Part::Url => copy(&[], entry.url.as_deref().ok_or("this capture has no URL")?),
-        Part::DeletionUrl | Part::File | Part::Folder => Err("nothing to copy".to_string()),
+        Part::DeletionUrl | Part::File | Part::Folder => Err("nothing to copy".into()),
     }
 }
 
-/// Through accioshot: on Wayland only a process without threads can keep serving the clipboard.
-fn copy(args: &[&std::ffi::OsStr], text: &str) -> Result<(), String> {
-    let mut child = Command::new(crate::sibling("accioshot"))
+fn copy(args: &[&std::ffi::OsStr], text: &str) -> Result<()> {
+    let mut child = Command::new(accioshot::sibling_binary("accioshot"))
         .arg("copy")
         .args(args)
         .stdin(Stdio::piped())
@@ -188,111 +230,93 @@ fn copy(args: &[&std::ffi::OsStr], text: &str) -> Result<(), String> {
         .spawn()
         .map_err(|error| format!("cannot run accioshot: {error}"))?;
     if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(text.as_bytes())
-            .map_err(|error| error.to_string())?;
+        stdin.write_all(text.as_bytes())?;
     }
-    let output = child
-        .wait_with_output()
-        .map_err(|error| error.to_string())?;
+    let output = child.wait_with_output()?;
     match output.status.success() {
         true => Ok(()),
-        false => Err(String::from_utf8_lossy(&output.stderr).trim().to_string()),
+        false => Err(String::from_utf8_lossy(&output.stderr).trim().into()),
     }
 }
 
-static EDITS: AtomicUsize = AtomicUsize::new(0);
+#[tauri::command]
+pub async fn edit_entry(entry: Entry, app: AppHandle) -> Result<()> {
+    blocking(app, move |library| edit(&entry, library)).await
+}
 
-#[tauri::command(async)]
-pub fn edit_entry(entry: Entry, library: State<Library>) -> Result<(), String> {
-    library.check(&entry)?;
+fn edit(entry: &Entry, library: &Library) -> Result<()> {
+    library.check(entry)?;
     let path = entry
         .path
         .as_deref()
         .filter(|path| path.exists())
         .ok_or("this capture has no file")?;
-    let name = path.file_name().ok_or("this capture has no file")?;
-    let edit = EDITS.fetch_add(1, Ordering::Relaxed);
-    let output = path.with_file_name(format!(".{}.{edit}.editing.png", name.to_string_lossy()));
-    let copy_only = output.with_extension("copy-only");
-    Command::new(crate::sibling("accioshot-ui"))
-        .arg("edit")
-        .arg(path)
-        .arg(&output)
-        .status()
-        .map_err(|error| format!("cannot open the editor: {error}"))?;
-    let result = if !output.exists() {
-        Ok(())
-    } else if library.check(&entry).is_err() || !path.exists() {
-        Err("the capture was removed while it was being edited".to_string())
-    } else if copy_only.exists() {
-        copy(&[std::ffi::OsStr::new("--image"), output.as_os_str()], "")
-    } else {
-        std::fs::rename(&output, path)
-            .map_err(|error| format!("cannot save {}: {error}", path.display()))
+    let command = Config::load()?.editor.command;
+    edit_file(path, &command, || library.check(entry).is_ok())
+}
+
+fn edit_file(path: &Path, command: &str, still_listed: impl Fn() -> bool) -> Result<()> {
+    let png =
+        std::fs::read(path).map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+    let Some(edited) = editor::edit(command, &png)? else {
+        return Ok(());
     };
-    let _ = std::fs::remove_file(&output);
-    let _ = std::fs::remove_file(&copy_only);
-    result
+    if !still_listed() || !path.exists() {
+        return Err("the capture was removed while it was being edited".into());
+    }
+    if edited.copy_only {
+        let dir = PrivateDir::new("accioshot-copy")?;
+        let file = dir.path().join("capture.png");
+        std::fs::write(&file, &edited.png)?;
+        return copy(&[std::ffi::OsStr::new("--image"), file.as_os_str()], "");
+    }
+    let mode = std::fs::metadata(path)?.permissions().mode();
+    Ok(write_atomically(path, &edited.png, mode)
+        .map_err(|error| format!("cannot save {}: {error}", path.display()))?)
 }
 
 #[tauri::command]
-pub fn open_entry(entry: Entry, part: Part, library: State<Library>) -> Result<(), String> {
+pub fn open_entry(entry: Entry, part: Part, library: State<Library>) -> Result<()> {
     library.check(&entry)?;
     match part {
-        Part::File => crate::open(
-            entry
-                .path
-                .as_deref()
-                .ok_or("this capture has no file")?
-                .as_os_str(),
-        ),
+        Part::File => open(file(&entry)?.as_os_str()),
         Part::Folder => {
-            let dir = entry.path.as_deref().and_then(Path::parent);
-            crate::open(dir.ok_or("this capture has no file")?.as_os_str())
+            let dir = file(&entry)?.parent().ok_or("this capture has no folder")?;
+            open(dir.as_os_str())
         }
         Part::Url => open_url(entry.url.as_deref()),
         Part::DeletionUrl => open_url(entry.deletion_url.as_deref()),
-        Part::Image | Part::Path => Err("nothing to open".to_string()),
+        Part::Image | Part::Path => Err("nothing to open".into()),
     }
 }
 
-/// These came from a remote server's response, the desktop must not run anything else.
-fn open_url(url: Option<&str>) -> Result<(), String> {
+fn open_url(url: Option<&str>) -> Result<()> {
     let url = url.ok_or("this capture has no such link")?;
-    if !is_web_url(url) {
-        return Err(format!("not a web address: {url}"));
+    if !accioshot::is_web_url(url) {
+        return Err(format!("not a web address: {url}").into());
     }
-    crate::open(url.as_ref())
+    open(url.as_ref())
 }
 
-fn is_web_url(url: &str) -> bool {
-    let lower = url.to_ascii_lowercase();
-    lower.starts_with("http://") || lower.starts_with("https://")
+fn open(target: &std::ffi::OsStr) -> Result<()> {
+    Ok(accioshot::open(target)?)
 }
 
-/// The file goes first: if that fails the entry stays, so the delete can be tried again.
 #[tauri::command]
 pub fn delete_entries(
     entries: Vec<Entry>,
     delete_file: bool,
     library: State<Library>,
-) -> Result<Vec<String>, String> {
-    for entry in &entries {
-        library.check(entry)?;
-    }
-    let size = (
-        library.config.thumbnail_width,
-        library.config.thumbnail_height,
-    );
-    let mut failures = Vec::new();
+) -> Result<Vec<String>> {
+    let (entries, mut failures) = library.split_known(entries);
+    let size = library.config.thumbnail_size();
     let mut removable = Vec::new();
     for entry in entries {
         if let Some(path) = entry.path.as_deref() {
             if let Ok(file) = std::fs::metadata(path)
                 && let Some(cached) = thumbnail_path(path, &file, size)
             {
-                let _ = std::fs::remove_file(cached);
+                std::fs::remove_file(cached).ok();
             }
             if delete_file {
                 match std::fs::remove_file(path) {
@@ -306,12 +330,10 @@ pub fn delete_entries(
         }
         removable.push(entry);
     }
-    history::remove(&removable).map_err(|error| error.to_string())?;
-    library
-        .entries
-        .lock()
-        .map_err(|e| e.to_string())?
-        .retain(|e| !removable.contains(e));
+    if !removable.is_empty() {
+        history::remove(&removable)?;
+    }
+    library.entries.lock()?.retain(|e| !removable.contains(e));
     Ok(failures)
 }
 
@@ -330,7 +352,7 @@ mod tests {
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("accioshot-ui-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::remove_dir_all(&dir).ok();
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -364,12 +386,26 @@ mod tests {
     }
 
     #[test]
-    fn only_web_links_open() {
-        assert!(is_web_url("https://x/delete/1"));
-        assert!(is_web_url("HTTP://x"));
-        assert!(!is_web_url("file:///etc/passwd"));
-        assert!(!is_web_url("--help"));
-        assert!(!is_web_url("javascript:alert(1)"));
+    fn stale_entries_fail_alone() {
+        let library = Library::new(HistoryConfig::default());
+        let known = entry(None, Some("https://x"));
+        library.entries.lock().unwrap().push(known.clone());
+        let stale = entry(Some("/shots/gone.png".into()), None);
+        let (entries, failures) = library.split_known(vec![stale, known.clone()]);
+        assert_eq!(entries, [known]);
+        assert_eq!(failures, ["/shots/gone.png is no longer in the history"]);
+    }
+
+    #[test]
+    fn only_files_on_show_can_be_dragged() {
+        let library = Library::new(HistoryConfig::default());
+        library
+            .entries
+            .lock()
+            .unwrap()
+            .push(entry(Some("/shots/a.png".into()), None));
+        assert!(library.holds_files(&["/shots/a.png".into()]));
+        assert!(!library.holds_files(&["/shots/a.png".into(), "/etc/passwd".into()]));
     }
 
     #[test]
@@ -390,8 +426,26 @@ mod tests {
     }
 
     #[test]
+    fn edits_replace_the_file_and_failures_say_so() {
+        let dir = temp_dir("edit");
+        let path = dir.join("a.png");
+        let png = b"\x89PNG\r\n\x1a\nold";
+        std::fs::write(&path, png).unwrap();
+        std::fs::set_permissions(&path, PermissionsExt::from_mode(0o640)).unwrap();
+        edit_file(&path, "cp {input} {output}", || true).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), png);
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o640);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        assert!(edit_file(&path, "false {input}", || true).is_err());
+        assert!(edit_file(&path, "cp {input} {output}", || false).is_err());
+        edit_file(&path, "true {output}", || true).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), png);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn stored_thumbnails_leave_no_partial_file() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = temp_dir("store").join("thumbs");
         let path = dir.join("a.png");
         store(&path, b"png").unwrap();

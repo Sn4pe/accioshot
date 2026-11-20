@@ -14,6 +14,7 @@ dependencies = [
  "dirs",
  "fancy-regex",
  "foreign-types",
+ "http",
  "image",
  "ksni",
  "libc",
@@ -46,7 +47,6 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-drag",
- "toml 1.2.0+spec-1.1.0",
 ]
 
 [[package]]

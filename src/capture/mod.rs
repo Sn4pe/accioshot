@@ -21,20 +21,45 @@ pub use platform::layout;
 use crate::config::RegionConfig;
 use crate::{Result, region};
 
-pub const CANCELLED: &str = "capture cancelled";
+#[derive(Debug)]
+pub enum Stopped {
+    Cancelled,
+    Busy,
+}
+
+impl std::fmt::Display for Stopped {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Stopped::Cancelled => "capture cancelled",
+            Stopped::Busy => "another capture is in progress",
+        })
+    }
+}
+
+impl std::error::Error for Stopped {}
 
 #[derive(Clone, Copy, ValueEnum)]
 pub enum Mode {
-    /// Select an area on a frozen capture of the screen
+    #[value(help = "Select an area on a frozen capture of the screen")]
     Region,
-    /// The last selected area, asks for one if there is none or the screen size changed
+    #[value(
+        help = "The last selected area, asks for one if there is none or the screen size changed"
+    )]
     LastRegion,
-    /// Active window (Hyprland only on Linux)
+    #[value(help = "Active window (Hyprland only on Linux)")]
     Window,
-    /// Focused monitor (Hyprland only on Linux)
+    #[value(help = "Focused monitor (Hyprland only on Linux)")]
     Monitor,
-    /// All monitors
+    #[value(help = "All monitors")]
     Screen,
+}
+
+impl Mode {
+    pub fn name(self) -> String {
+        self.to_possible_value()
+            .map(|value| value.get_name().to_string())
+            .unwrap_or_default()
+    }
 }
 
 pub async fn capture(mode: Mode, options: &RegionConfig) -> Result<Vec<u8>> {
@@ -56,13 +81,11 @@ pub async fn capture(mode: Mode, options: &RegionConfig) -> Result<Vec<u8>> {
     }
 }
 
-/// shortcut: the desktop's own picker does not tell us the area, so only our selector remembers it.
 async fn select_region(options: &RegionConfig) -> Result<Vec<u8>> {
     #[cfg(target_os = "linux")]
     if !region::available() {
         return platform::picker().await;
     }
-    // Before the capture, so they match what gets frozen. Off Hyprland on Linux there are none.
     let windows = match options.snap_windows {
         true => platform::visible_windows().unwrap_or_default(),
         false => Vec::new(),
@@ -71,21 +94,19 @@ async fn select_region(options: &RegionConfig) -> Result<Vec<u8>> {
     let magnifier = options
         .magnifier
         .then(|| region::Magnifier::new(options.magnifier_size, options.magnifier_pixels));
-    let (area, layout) = region::select(&image.to_rgba8(), windows, magnifier)?.ok_or(CANCELLED)?;
+    let (area, layout) =
+        region::select(&image.to_rgba8(), windows, magnifier)?.ok_or(Stopped::Cancelled)?;
     let rect = pixel_rect(area, &layout, image.width(), image.height())?;
     let last = LastRegion {
         rect,
         image: [image.width(), image.height()],
     };
-    // The capture is fine without it.
     if let Err(error) = last.save() {
         eprintln!("accioshot: cannot remember the region: {error}");
     }
     encode_crop(&image, rect)
 }
 
-/// Pixels instead of the logical area: replaying it needs no monitor layout, and a screen of
-/// another size is caught by comparing the image.
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 struct LastRegion {
     rect: [u32; 4],
@@ -94,9 +115,7 @@ struct LastRegion {
 
 impl LastRegion {
     fn path() -> Option<PathBuf> {
-        // macOS has no state directory.
-        let dir = dirs::state_dir().or_else(dirs::data_dir)?;
-        Some(dir.join("accioshot/last-region.json"))
+        Some(accioshot::state_dir()?.join("last-region.json"))
     }
 
     fn load() -> Option<LastRegion> {
@@ -147,8 +166,6 @@ pub(crate) fn encode_crop(
     Ok(output)
 }
 
-/// Maps a logical area to pixels in the image of all monitors. The factor comes from the image
-/// because with mixed scales the capture uses the largest one.
 pub(crate) fn pixel_rect(
     area: Area,
     areas: &[Area],
@@ -182,17 +199,36 @@ pub struct Area {
     pub height: f64,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn area(x: f64, y: f64, width: f64, height: f64) -> Area {
+impl Area {
+    pub const fn new(x: f64, y: f64, width: f64, height: f64) -> Area {
         Area {
             x,
             y,
             width,
             height,
         }
+    }
+}
+
+impl From<([i32; 2], [i32; 2])> for Area {
+    fn from(([x, y], [width, height]): ([i32; 2], [i32; 2])) -> Area {
+        Area::new(
+            f64::from(x),
+            f64::from(y),
+            f64::from(width),
+            f64::from(height),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn modes_are_named_like_the_command_line() {
+        assert_eq!(Mode::LastRegion.name(), "last-region");
+        assert_eq!(Mode::Region.name(), "region");
     }
 
     #[test]
@@ -233,8 +269,8 @@ mod tests {
     #[test]
     fn second_monitor_is_offset() {
         let layout = [
-            area(0.0, 0.0, 1920.0, 1080.0),
-            area(1920.0, 0.0, 1920.0, 1080.0),
+            Area::new(0.0, 0.0, 1920.0, 1080.0),
+            Area::new(1920.0, 0.0, 1920.0, 1080.0),
         ];
         let rect = pixel_rect(layout[1], &layout, 3840, 1080).unwrap();
         assert_eq!(rect, [1920, 0, 1920, 1080]);
@@ -243,30 +279,31 @@ mod tests {
     #[test]
     fn negative_origin_is_normalized() {
         let layout = [
-            area(-1920.0, -100.0, 1920.0, 1080.0),
-            area(0.0, 0.0, 1920.0, 1080.0),
+            Area::new(-1920.0, -100.0, 1920.0, 1080.0),
+            Area::new(0.0, 0.0, 1920.0, 1080.0),
         ];
-        let rect = pixel_rect(area(10.0, 20.0, 100.0, 50.0), &layout, 3840, 1180).unwrap();
+        let rect = pixel_rect(Area::new(10.0, 20.0, 100.0, 50.0), &layout, 3840, 1180).unwrap();
         assert_eq!(rect, [1930, 120, 100, 50]);
     }
 
     #[test]
     fn scaled_monitor_uses_image_factor() {
-        let layout = [area(0.0, 0.0, 1920.0, 1080.0)];
-        let rect = pixel_rect(area(100.0, 100.0, 200.0, 100.0), &layout, 3840, 2160).unwrap();
+        let layout = [Area::new(0.0, 0.0, 1920.0, 1080.0)];
+        let rect = pixel_rect(Area::new(100.0, 100.0, 200.0, 100.0), &layout, 3840, 2160).unwrap();
         assert_eq!(rect, [200, 200, 400, 200]);
     }
 
     #[test]
     fn window_past_the_edge_is_clamped() {
-        let layout = [area(0.0, 0.0, 1920.0, 1080.0)];
-        let rect = pixel_rect(area(1900.0, 1000.0, 100.0, 200.0), &layout, 1920, 1080).unwrap();
+        let layout = [Area::new(0.0, 0.0, 1920.0, 1080.0)];
+        let rect =
+            pixel_rect(Area::new(1900.0, 1000.0, 100.0, 200.0), &layout, 1920, 1080).unwrap();
         assert_eq!(rect, [1900, 1000, 20, 80]);
     }
 
     #[test]
     fn area_outside_the_screen_fails() {
-        let layout = [area(0.0, 0.0, 1920.0, 1080.0)];
-        assert!(pixel_rect(area(3000.0, 0.0, 100.0, 100.0), &layout, 1920, 1080).is_err());
+        let layout = [Area::new(0.0, 0.0, 1920.0, 1080.0)];
+        assert!(pixel_rect(Area::new(3000.0, 0.0, 100.0, 100.0), &layout, 1920, 1080).is_err());
     }
 }

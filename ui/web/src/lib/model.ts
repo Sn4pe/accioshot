@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Tool names are ShareX's EditorTool.
 
 export type Point = { x: number; y: number }
 export type Rect = { x: number; y: number; width: number; height: number }
@@ -26,18 +25,8 @@ export type Annotation = Shape | Freehand | Text | Step
 export type Doc = { annotations: Annotation[]; crop: Rect | null }
 export const EMPTY_DOC: Doc = { annotations: [], crop: null }
 
-export const SHAPE_KINDS: readonly string[] = [
-  'Rectangle',
-  'Ellipse',
-  'Line',
-  'Arrow',
-  'Highlight',
-  'Blur',
-  'Pixelate',
-]
-
 export function isShape(annotation: Annotation): annotation is Shape {
-  return SHAPE_KINDS.includes(annotation.kind)
+  return annotation.kind !== 'Freehand' && annotation.kind !== 'Text' && annotation.kind !== 'Step'
 }
 
 function isLineLike(annotation: Annotation): boolean {
@@ -117,7 +106,6 @@ export function hit(annotation: Annotation, p: Point, tolerance: number): boolea
   }
 }
 
-/** Topmost first, as drawn last is on top. */
 export function hitTop(annotations: Annotation[], p: Point, tolerance: number): Annotation | null {
   for (let i = annotations.length - 1; i >= 0; i--) {
     if (hit(annotations[i], p, tolerance)) return annotations[i]
@@ -125,18 +113,22 @@ export function hitTop(annotations: Annotation[], p: Point, tolerance: number): 
   return null
 }
 
-export function translated<T extends Annotation>(annotation: T, dx: number, dy: number): T {
+export function translated(annotation: Annotation, dx: number, dy: number): Annotation {
   const move = (p: Point) => ({ x: p.x + dx, y: p.y + dy })
-  if (annotation.kind === 'Freehand') return { ...annotation, points: annotation.points.map(move) }
-  if (annotation.kind === 'Text' || annotation.kind === 'Step') return { ...annotation, at: move(annotation.at) }
-  const shape = annotation as Shape
-  return { ...shape, a: move(shape.a), b: move(shape.b) } as T
+  switch (annotation.kind) {
+    case 'Freehand':
+      return { ...annotation, points: annotation.points.map(move) }
+    case 'Text':
+    case 'Step':
+      return { ...annotation, at: move(annotation.at) }
+    default:
+      return { ...annotation, a: move(annotation.a), b: move(annotation.b) }
+  }
 }
 
 export type HandleId = 'a' | 'b' | 'ab' | 'ba'
 export type Handle = { id: HandleId; at: Point }
 
-/** Line-like shapes resize by their ends, the rest by their corners. Text scales from its bottom right. */
 export function handles(annotation: Annotation): Handle[] {
   if (annotation.kind === 'Text') {
     return [{ id: 'b', at: { x: annotation.at.x + annotation.width, y: annotation.at.y + annotation.height } }]
@@ -165,7 +157,6 @@ export function hitHandle(annotation: Annotation, p: Point, tolerance: number): 
   return handle?.id ?? null
 }
 
-/** Steps grow around their center and text from its corner, both within `limits`. */
 export function resized(annotation: Annotation, handle: HandleId, p: Point, limits: [number, number]): Annotation {
   const clamp = (size: number) => Math.min(Math.max(size, limits[0]), limits[1])
   if (annotation.kind === 'Step') {
@@ -193,7 +184,6 @@ function resizedShape(shape: Shape, handle: HandleId, p: Point): Shape {
   }
 }
 
-/** With Shift: squares for box shapes, 45 degree steps for lines. */
 export function constrained(kind: Tool, a: Point, b: Point): Point {
   const dx = b.x - a.x
   const dy = b.y - a.y
@@ -206,14 +196,12 @@ export function constrained(kind: Tool, a: Point, b: Point): Point {
   return { x: a.x + Math.sign(dx || 1) * side, y: a.y + Math.sign(dy || 1) * side }
 }
 
-/** Steps count in the order they were placed, so layers do not renumber them but deleting one does. */
 export function stepNumber(annotations: Annotation[], id: number): number {
   return annotations.filter((a) => a.kind === 'Step' && a.id <= id).length
 }
 
 export type Layer = 'bring_forward' | 'send_backward' | 'bring_to_front' | 'send_to_back'
 
-/** Moves the annotations in `ids` through the stack, keeping their order among themselves. */
 export function reordered(annotations: Annotation[], ids: number[], layer: Layer): Annotation[] {
   const picked = (a: Annotation) => ids.includes(a.id)
   const list = [...annotations]
@@ -235,10 +223,11 @@ export function reordered(annotations: Annotation[], ids: number[], layer: Layer
   }
 }
 
-/** Fully inside `rect`, like a selection box in a drawing program. */
 export function inside(annotation: Annotation, rect: Rect): boolean {
   const b = bounds(annotation)
-  return b.x >= rect.x && b.y >= rect.y && b.x + b.width <= rect.x + rect.width && b.y + b.height <= rect.y + rect.height
+  return (
+    b.x >= rect.x && b.y >= rect.y && b.x + b.width <= rect.x + rect.width && b.y + b.height <= rect.y + rect.height
+  )
 }
 
 export function clampRect(rect: Rect, limit: Rect): Rect {
@@ -250,141 +239,4 @@ export function clampRect(rect: Rect, limit: Rect): Rect {
     width: Math.max(0, Math.min(rect.x + rect.width, limit.x + limit.width) - x),
     height: Math.max(0, Math.min(rect.y + rect.height, limit.y + limit.height) - y),
   }
-}
-
-export class History {
-  private past: Doc[] = []
-  private future: Doc[] = []
-
-  constructor(public doc: Doc = EMPTY_DOC) {}
-
-  get canUndo() {
-    return this.past.length > 0
-  }
-  get canRedo() {
-    return this.future.length > 0
-  }
-
-  commit(doc: Doc) {
-    this.past.push(this.doc)
-    this.future = []
-    this.doc = doc
-  }
-
-  undo() {
-    const previous = this.past.pop()
-    if (!previous) return
-    this.future.push(this.doc)
-    this.doc = previous
-  }
-
-  redo() {
-    const next = this.future.pop()
-    if (!next) return
-    this.past.push(this.doc)
-    this.doc = next
-  }
-
-  /** Changes the current state without a new undo step. */
-  replace(doc: Doc) {
-    this.doc = doc
-  }
-}
-
-export type Move = 'move_left' | 'move_right' | 'move_up' | 'move_down'
-export type Action =
-  | Tool
-  | Move
-  | 'undo'
-  | 'redo'
-  | 'delete'
-  | 'save'
-  | 'copy'
-  | 'discard'
-  | 'zoom_in'
-  | 'zoom_out'
-  | 'zoom_fit'
-  | 'zoom_actual'
-  | 'pan'
-  | 'duplicate'
-  | 'select_all'
-  | Layer
-
-export const MOVES: Record<Move, Point> = {
-  move_left: { x: -1, y: 0 },
-  move_right: { x: 1, y: 0 },
-  move_up: { x: 0, y: -1 },
-  move_down: { x: 0, y: 1 },
-}
-
-export const DEFAULT_KEYS: Record<Action, string> = {
-  Select: 'v',
-  Rectangle: 'r',
-  Ellipse: 'e',
-  Line: 'l',
-  Arrow: 'a',
-  Freehand: 'f',
-  Text: 't',
-  Step: 's',
-  Highlight: 'h',
-  Blur: 'b',
-  Pixelate: 'p',
-  Crop: 'c',
-  undo: 'ctrl+z',
-  redo: 'ctrl+shift+z, ctrl+y',
-  delete: 'delete',
-  save: 'ctrl+s',
-  copy: 'ctrl+c',
-  discard: 'escape',
-  // A US layout sends + with Shift, a Spanish one without.
-  zoom_in: 'ctrl++, ctrl+shift++, ctrl+=',
-  zoom_out: 'ctrl+-',
-  zoom_fit: 'ctrl+0',
-  zoom_actual: 'ctrl+1',
-  // Held down, the left button drags the view.
-  pan: 'space',
-  move_left: 'arrowleft, shift+arrowleft',
-  move_right: 'arrowright, shift+arrowright',
-  move_up: 'arrowup, shift+arrowup',
-  move_down: 'arrowdown, shift+arrowdown',
-  duplicate: 'ctrl+d',
-  select_all: 'ctrl+a',
-  // Page and Home/End like Inkscape, [ and ] need AltGr on many layouts.
-  bring_forward: 'pageup',
-  send_backward: 'pagedown',
-  bring_to_front: 'home',
-  send_to_back: 'end',
-}
-
-export function normalizeCombo(combo: string): string {
-  const lower = combo.toLowerCase().trim()
-  // The + key itself, as in ctrl++.
-  const plus = lower === '+' || lower.endsWith('++')
-  const parts = (plus ? lower.slice(0, -1) : lower).split('+').map((part) => part.trim())
-  const last = parts.pop() ?? ''
-  const key = plus ? '+' : last
-  const order = ['ctrl', 'alt', 'shift'].filter((modifier) => parts.includes(modifier))
-  return [...order, key].join('+')
-}
-
-export function eventCombo(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>): string {
-  const parts: string[] = []
-  if (event.ctrlKey || event.metaKey) parts.push('ctrl')
-  if (event.altKey) parts.push('alt')
-  if (event.shiftKey) parts.push('shift')
-  parts.push(event.key === ' ' ? 'space' : event.key.toLowerCase())
-  return parts.join('+')
-}
-
-/** Combination to action, with the user's keys over the defaults. Commas separate alternatives. */
-export function keymap(custom: Record<string, string>): Map<string, Action> {
-  const merged = { ...DEFAULT_KEYS, ...custom } as Record<string, string>
-  const map = new Map<string, Action>()
-  for (const [action, combos] of Object.entries(merged)) {
-    if (!(action in DEFAULT_KEYS)) throw new Error(`[editor.keys] has an unknown action: ${action}`)
-    for (const combo of combos.split(',')) {
-      if (combo.trim()) map.set(normalizeCombo(combo), action as Action)
-    }
-  }
-  return map
 }

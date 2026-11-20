@@ -9,7 +9,6 @@ export type Entry = {
 export type Item = { entry: Entry; exists: boolean }
 export type Day = { label: string; items: Item[] }
 
-/** Identical lines in the file are one capture, so this is unique once `unique` has run. */
 export function entryKey(entry: Entry): string {
   return JSON.stringify([entry.time, entry.path, entry.url, entry.deletion_url])
 }
@@ -32,10 +31,12 @@ export function title(entry: Entry): string {
   }
 }
 
-/** Every word has to appear somewhere, in any order, ignoring case. */
 export function matches(entry: Entry, query: string): boolean {
   const haystack = [entry.path, entry.url, entry.time].filter(Boolean).join(' ').toLowerCase()
-  return query.toLowerCase().split(/\s+/).every((word) => haystack.includes(word))
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .every((word) => haystack.includes(word))
 }
 
 export function clock(time: string): string {
@@ -60,8 +61,6 @@ function startOfDay(date: Date): number {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
 }
 
-/** Keeps the order it gets. A damaged time lands in a group of its own instead of hiding the capture,
- * and it cannot split the day around it. */
 export function byDay(items: Item[], today = new Date()): Day[] {
   const days = new Map<string, Item[]>()
   for (const item of items) {
@@ -74,7 +73,13 @@ export function byDay(items: Item[], today = new Date()): Day[] {
 
 export type Pick = 'one' | 'toggle' | 'range'
 
-export function pick(selected: ReadonlySet<string>, order: string[], key: string, anchor: string | null, how: Pick): Set<string> {
+export function pick(
+  selected: ReadonlySet<string>,
+  order: string[],
+  key: string,
+  anchor: string | null,
+  how: Pick,
+): Set<string> {
   if (how === 'toggle') {
     const next = new Set(selected)
     if (!next.delete(key)) next.add(key)

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::path::PathBuf;
+use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 
 use ksni::blocking::TrayMethods;
 use ksni::menu::{MenuItem, StandardItem, SubMenu};
@@ -11,25 +12,29 @@ use super::{
     open, single_instance, spawn_capture, spawn_ui,
 };
 use crate::Result;
+use crate::capture::Mode;
 use crate::config::Config;
 use crate::history::{self, Entry};
 
 pub fn run() -> Result<()> {
     let _lock = single_instance()?;
     let config = Config::load()?;
+    let (quit, quitting) = mpsc::channel();
     let tray = Tray {
         recent: history::recent(RECENT_COUNT),
         pictures_dir: config.pictures_dir()?,
-        // Asked now: once an update replaces the binary, the kernel reports it as "(deleted)".
         exe: std::env::current_exe()?,
+        quit,
     };
     let handle = tray.spawn()?;
 
-    // shortcut: polls the file because captures are separate processes, use inotify if a two
-    // second delay in the menu ever matters.
     let mut seen = history_modified();
     loop {
-        std::thread::sleep(HISTORY_POLL);
+        match quitting.recv_timeout(HISTORY_POLL) {
+            Ok(()) => return Ok(()),
+            Err(RecvTimeoutError::Disconnected) => return Err("the tray stopped".into()),
+            Err(RecvTimeoutError::Timeout) => {}
+        }
         let modified = history_modified();
         if modified != seen {
             seen = modified;
@@ -45,6 +50,7 @@ struct Tray {
     recent: Vec<Entry>,
     pictures_dir: PathBuf,
     exe: PathBuf,
+    quit: Sender<()>,
 }
 
 impl ksni::Tray for Tray {
@@ -61,7 +67,7 @@ impl ksni::Tray for Tray {
     }
 
     fn activate(&mut self, _x: i32, _y: i32) {
-        spawn_capture(self.exe.clone(), "region", MENU_CLOSE_DELAY);
+        spawn_capture(self.exe.clone(), Mode::Region, MENU_CLOSE_DELAY);
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
@@ -93,7 +99,7 @@ impl ksni::Tray for Tray {
             menu.push(
                 StandardItem {
                     label: label.into(),
-                    activate: Box::new(move |tray: &mut Self| spawn_ui(&tray.exe, window)),
+                    activate: Box::new(move |_: &mut Self| spawn_ui(window)),
                     ..Default::default()
                 }
                 .into(),
@@ -112,7 +118,9 @@ impl ksni::Tray for Tray {
         menu.push(
             StandardItem {
                 label: "Quit".into(),
-                activate: Box::new(|_: &mut Self| std::process::exit(0)),
+                activate: Box::new(|tray: &mut Self| {
+                    tray.quit.send(()).ok();
+                }),
                 ..Default::default()
             }
             .into(),
@@ -126,7 +134,6 @@ fn recent_item(entry: &Entry) -> MenuItem<Tray> {
     StandardItem {
         label: menu_label(&entry_label(entry)),
         activate: Box::new(move |_: &mut Tray| {
-            // In process, the daemon lives on to serve the clipboard.
             let source = Source::Bytes(text.clone().into_bytes().into());
             if let Err(error) = Options::new().copy(source, MimeType::Text) {
                 eprintln!("accioshot: {error}");
@@ -137,7 +144,6 @@ fn recent_item(entry: &Entry) -> MenuItem<Tray> {
     .into()
 }
 
-/// Single underscores are mnemonics in menu labels, and capture names are full of them.
 fn menu_label(text: &str) -> String {
     text.replace('_', "__")
 }

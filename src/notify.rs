@@ -4,21 +4,20 @@ use std::path::Path;
 
 use crate::Result;
 
-/// The text goes as arguments, URLs and errors come from remote servers.
 #[cfg(target_os = "macos")]
 pub async fn send(summary: &str, body: &str, _image: Option<&Path>) -> Result<()> {
+    osascript(
+        "display notification (item 2 of argv) with title \"accioshot\" subtitle (item 1 of argv)",
+        &[summary.as_ref(), body.as_ref()],
+    )
+}
+
+#[cfg(target_os = "macos")]
+pub fn osascript(script: &str, args: &[&std::ffi::OsStr]) -> Result<()> {
     let output = std::process::Command::new("osascript")
         .env("LC_ALL", "en_US.UTF-8")
-        .args([
-            "-e",
-            "on run argv",
-            "-e",
-            "display notification (item 2 of argv) with title \"accioshot\" subtitle (item 1 of argv)",
-            "-e",
-            "end run",
-            summary,
-            body,
-        ])
+        .args(["-e", "on run argv", "-e", script, "-e", "end run"])
+        .args(args)
         .output()?;
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().into());
@@ -29,7 +28,6 @@ pub async fn send(summary: &str, body: &str, _image: Option<&Path>) -> Result<()
 #[cfg(target_os = "linux")]
 const EXPIRE_DEFAULT: i32 = -1;
 
-/// Shows a desktop notification, with the capture as its image if there is one on disk.
 #[cfg(target_os = "linux")]
 pub async fn send(summary: &str, body: &str, image: Option<&Path>) -> Result<()> {
     use std::collections::HashMap;
@@ -62,7 +60,6 @@ pub async fn send(summary: &str, body: &str, image: Option<&Path>) -> Result<()>
     Ok(())
 }
 
-/// Servers may render the body as markup, and URLs and errors come from remote servers.
 #[cfg(target_os = "linux")]
 fn escape_markup(text: &str) -> String {
     text.replace('&', "&amp;")

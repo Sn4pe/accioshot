@@ -1,36 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::fs::DirBuilder;
 use std::io::ErrorKind;
-use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::Result;
 use crate::config::BUILTIN_EDITOR;
+use crate::fs::PrivateDir;
+use crate::{COPY_ONLY_EXTENSION, Result, UI_BINARY, sibling_binary};
 
-const UI_BINARY: &str = "accioshot-ui";
 const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
-/// Next to the output, the built-in editor creates it when the image is only for the clipboard.
-const COPY_ONLY_EXTENSION: &str = "copy-only";
 
 pub struct Edited {
     pub png: Vec<u8>,
     pub copy_only: bool,
 }
 
-/// Opens the capture in an editor. Returns the edited image, or None if the user discarded it.
 pub fn edit(command: &str, png: &[u8]) -> Result<Option<Edited>> {
-    let dir = dirs::runtime_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join(format!("accioshot-edit-{}", std::process::id()));
-    // A killed run with this same pid leaves its directory behind.
-    let _ = std::fs::remove_dir_all(&dir);
-    // 0700: this is a screenshot, it may hold anything.
-    DirBuilder::new().mode(0o700).create(&dir)?;
-    let result = edit_in(command, png, &dir);
-    let _ = std::fs::remove_dir_all(&dir);
-    result
+    let dir = PrivateDir::new("accioshot-edit")?;
+    edit_in(command, png, dir.path())
 }
 
 fn edit_in(command: &str, png: &[u8], dir: &Path) -> Result<Option<Edited>> {
@@ -42,7 +29,6 @@ fn edit_in(command: &str, png: &[u8], dir: &Path) -> Result<Option<Edited>> {
     let status = Command::new(&plan.program)
         .args(&plan.args)
         .stdin(Stdio::null())
-        // Our stdout is the result scripts read.
         .stdout(Stdio::null())
         .status()
         .map_err(|error| match error.kind() {
@@ -78,14 +64,12 @@ struct Plan {
     result: PathBuf,
 }
 
-/// shortcut: templates split on whitespace, no quoting. The paths are replaced after splitting so
-/// they can have spaces. Use a real parser if an editor needs quoted arguments.
 fn plan(command: &str, input: &Path, output: &Path) -> Result<Plan> {
     let input_text = input.display().to_string();
     let output_text = output.display().to_string();
     if command == BUILTIN_EDITOR {
         return Ok(Plan {
-            program: std::env::current_exe().map_or(UI_BINARY.into(), |exe| ui_binary(&exe)),
+            program: sibling_binary(UI_BINARY),
             args: vec!["edit".to_string(), input_text, output_text],
             result: output.to_path_buf(),
         });
@@ -98,20 +82,11 @@ fn plan(command: &str, input: &Path, output: &Path) -> Result<Plan> {
     Ok(Plan {
         program: program.into(),
         args: parts.collect(),
-        // Without {output} the editor must change the file in place.
         result: match command.contains("{output}") {
             true => output.to_path_buf(),
             false => input.to_path_buf(),
         },
     })
-}
-
-/// Next to `exe` first, so a build or a package finds its own windows.
-pub fn ui_binary(exe: &Path) -> PathBuf {
-    exe.parent()
-        .map(|dir| dir.join(UI_BINARY))
-        .filter(|path| path.exists())
-        .unwrap_or_else(|| UI_BINARY.into())
 }
 
 #[cfg(test)]
@@ -190,15 +165,9 @@ mod tests {
     }
 
     #[test]
-    fn leftover_directory_does_not_block_an_edit() {
-        let dir = dirs::runtime_dir()
-            .unwrap_or_else(std::env::temp_dir)
-            .join(format!("accioshot-edit-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("input.png"), "old").unwrap();
+    fn edit_runs_in_a_directory_of_its_own() {
         let edited = edit("cp {input} {output}", PNG_SIGNATURE).unwrap().unwrap();
         assert_eq!(edited.png, PNG_SIGNATURE);
-        assert!(!dir.exists());
     }
 
     #[test]

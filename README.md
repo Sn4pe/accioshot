@@ -216,7 +216,7 @@ macOS), private because it holds deletion URLs.
 - `window` and `monitor` only work on Hyprland for now
 - `--copy` needs Wayland on Linux
 
-On macOS there is nothing else to install, it uses `screencapture`, `osascript` and `pbcopy`:
+On macOS 14 or later there is nothing else to install, it uses `screencapture`, `osascript` and `pbcopy`:
 
 - The app that launches accioshot needs Screen Recording in System Settings > Privacy & Security
 - `region` shows the same selector, and clicking selects a window

@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! One borderless window per monitor, with its own event loop so `select` can return.
-
 use std::sync::Arc;
 
 use core_graphics::color_space::CGColorSpace;
@@ -22,15 +20,12 @@ use super::{Gesture, Magnifier, View, dim, paint, render_screen};
 use crate::Result;
 use crate::capture::{self, Area};
 
-/// NSScreenSaverWindowLevel: above the menu bar, the Dock and full screen apps.
 const OVERLAY_LEVEL: isize = 1000;
 const KEY_ESCAPE: u16 = 53;
-/// kCGBitmapByteOrder32Little | kCGImageAlphaNoneSkipFirst: the buffers hold B, G, R, X.
 const BITMAP_INFO: u32 = (2 << 12) | 6;
 const RENDERING_INTENT_DEFAULT: u32 = 0;
 
 define_class!(
-    // A borderless window refuses the keyboard by default, and Esc must reach it.
     #[unsafe(super(NSWindow))]
     #[thread_kind = MainThreadOnly]
     #[name = "AccioshotOverlayWindow"]
@@ -49,7 +44,6 @@ define_class!(
     }
 );
 
-/// The painting code works in one unit per buffer pixel, so everything here is multiplied by scale.
 struct Screen {
     window: Retained<OverlayWindow>,
     scale: f64,
@@ -64,15 +58,14 @@ struct Screen {
 }
 
 fn scaled(area: Area, scale: f64) -> Area {
-    Area {
-        x: area.x * scale,
-        y: area.y * scale,
-        width: area.width * scale,
-        height: area.height * scale,
-    }
+    Area::new(
+        area.x * scale,
+        area.y * scale,
+        area.width * scale,
+        area.height * scale,
+    )
 }
 
-/// Top left logical coordinates to AppKit's bottom left ones.
 fn cocoa_rect(area: Area, primary_height: f64) -> NSRect {
     NSRect::new(
         NSPoint::new(area.x, primary_height - area.y - area.height),
@@ -85,8 +78,6 @@ fn cursor_position(primary_height: f64) -> (f64, f64) {
     (point.x, primary_height - point.y)
 }
 
-/// Returns the selected area and the monitor layout it refers to, or None if cancelled. `windows`
-/// can be clicked instead of dragging, topmost first.
 pub fn select(
     image: &RgbaImage,
     windows: Vec<Area>,
@@ -100,11 +91,9 @@ pub fn select(
         .map_or(layout[0].height, |area| area.height);
 
     let app = NSApplication::sharedApplication(mtm);
-    // No Dock icon, and a capture started from a terminal or the tray must still take the keyboard.
     app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
     app.finishLaunching();
-    #[allow(deprecated)]
-    app.activateIgnoringOtherApps(true);
+    app.activate();
     NSCursor::crosshairCursor().set();
 
     let mut screens = Vec::new();
@@ -130,7 +119,6 @@ pub fn select(
 
     let result = loop {
         let mut wait = true;
-        // Handles everything queued before painting, a frame per mouse event falls behind.
         while let Some(event) = next_event(&app, wait) {
             wait = false;
             handle(&app, &event, &mut gesture, &windows, primary_height);
@@ -147,7 +135,7 @@ pub fn select(
         screen.window.orderOut(None);
     }
     flush();
-    Ok(result.map(|area| (area, layout)))
+    Ok(result.selected().map(|area| (area, layout)))
 }
 
 fn open_screen(
@@ -160,7 +148,6 @@ fn open_screen(
     layout: &[Area],
 ) -> Screen {
     let style = NSWindowStyleMask::Borderless;
-    // SAFETY: the standard initializer of NSWindow, with its documented argument types.
     let window: Retained<OverlayWindow> = unsafe {
         msg_send![
             OverlayWindow::alloc(mtm),
@@ -170,7 +157,6 @@ fn open_screen(
             defer: false,
         ]
     };
-    // SAFETY: the window is kept alive by Retained, so AppKit must not release it on close.
     unsafe { window.setReleasedWhenClosed(false) };
     window.setLevel(OVERLAY_LEVEL);
     window.setCollectionBehavior(
@@ -210,7 +196,6 @@ fn open_screen(
 
 fn next_event(app: &NSApplication, wait: bool) -> Option<Retained<NSEvent>> {
     let date = wait.then(NSDate::distantFuture);
-    // SAFETY: the mode is the framework's own constant, and this runs on the main thread.
     unsafe {
         app.nextEventMatchingMask_untilDate_inMode_dequeue(
             NSEventMask::Any,
@@ -233,12 +218,11 @@ fn handle(
         NSEventType::MouseMoved | NSEventType::LeftMouseDragged => gesture.cursor = Some(position),
         NSEventType::LeftMouseDown => gesture.pressed(position),
         NSEventType::LeftMouseUp => gesture.released_at(position, windows),
-        NSEventType::RightMouseDown => gesture.result = Some(None),
+        NSEventType::RightMouseDown => gesture.cancel(),
         NSEventType::KeyDown => {
             if event.keyCode() == KEY_ESCAPE {
-                gesture.result = Some(None);
+                gesture.cancel();
             }
-            // Passing keys on would only beep.
             return;
         }
         _ => {}
@@ -285,7 +269,6 @@ fn show(screen: &Screen, gesture: &Gesture, image: &RgbaImage) {
     let Some(content) = screen.window.contentView() else {
         return;
     };
-    // SAFETY: CALayer's contents accepts and retains a CGImage, and wantsLayer gives the view a layer.
     unsafe {
         let layer: *mut AnyObject = msg_send![&*content, layer];
         let contents = frame.as_ptr().cast::<AnyObject>();
@@ -294,10 +277,8 @@ fn show(screen: &Screen, gesture: &Gesture, image: &RgbaImage) {
     flush();
 }
 
-/// Without a run of the system's own loop nothing else commits what was drawn.
 fn flush() {
     if let Some(transaction) = objc2::runtime::AnyClass::get(c"CATransaction") {
-        // SAFETY: a class method without arguments.
         let _: () = unsafe { msg_send![transaction, flush] };
     }
 }

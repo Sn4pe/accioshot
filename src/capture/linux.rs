@@ -9,7 +9,7 @@ use reqwest::Url;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
-use super::{Area, CANCELLED, decode, encode_crop, pixel_rect};
+use super::{Area, Stopped, decode, encode_crop, pixel_rect};
 use crate::Result;
 use crate::names::Window;
 
@@ -17,13 +17,10 @@ pub async fn screen() -> Result<Vec<u8>> {
     portal(false).await
 }
 
-/// The desktop's own selector, for compositors without layer-shell.
 pub async fn picker() -> Result<Vec<u8>> {
     portal(true).await
 }
 
-// shortcut: crops the full capture, so anything on top of the window shows up.
-// Upgrade to hyprland_toplevel_export_v1 if that matters.
 pub async fn window() -> Result<Vec<u8>> {
     let (area, layout) = (active_window()?, monitor_areas(&monitors()?));
     crop(&portal(false).await?, area, &layout)
@@ -47,22 +44,20 @@ async fn portal(interactive: bool) -> Result<Vec<u8>> {
         .await?
         .response()
         .map_err(|error| match error {
-            ashpd::Error::Response(ResponseError::Cancelled) => CANCELLED.into(),
+            ashpd::Error::Response(ResponseError::Cancelled) => Stopped::Cancelled.into(),
             error => Box::<dyn std::error::Error>::from(format!("screenshot portal: {error}")),
         })?;
     let path = Url::parse(response.uri().as_str())?
         .to_file_path()
         .map_err(|_| "the portal did not return a local file")?;
-    let png = std::fs::read(&path)?;
+    let png = std::fs::read(&path);
     remove_if_temporary(&path);
-    Ok(png)
+    Ok(png?)
 }
 
-/// xdph leaves captures in the runtime dir. Other backends may save to the user's pictures,
-/// and those files are not ours to delete.
 fn remove_if_temporary(path: &Path) {
     if dirs::runtime_dir().is_some_and(|runtime| path.starts_with(runtime)) {
-        let _ = std::fs::remove_file(path);
+        std::fs::remove_file(path).ok();
     }
 }
 
@@ -73,6 +68,7 @@ fn crop(png: &[u8], area: Area, layout: &[Area]) -> Result<Vec<u8>> {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Monitor {
     x: i32,
     y: i32,
@@ -81,21 +77,22 @@ struct Monitor {
     scale: f64,
     transform: u32,
     focused: bool,
+    active_workspace: Workspace,
+    special_workspace: Workspace,
 }
 
 impl Monitor {
     fn area(&self) -> Area {
-        // Hyprland reports unrotated pixels, odd transforms swap the sides.
         let (width, height) = match self.transform % 2 {
             0 => (self.width, self.height),
             _ => (self.height, self.width),
         };
-        Area {
-            x: f64::from(self.x),
-            y: f64::from(self.y),
-            width: f64::from(width) / self.scale,
-            height: f64::from(height) / self.scale,
-        }
+        Area::new(
+            f64::from(self.x),
+            f64::from(self.y),
+            f64::from(width) / self.scale,
+            f64::from(height) / self.scale,
+        )
     }
 }
 
@@ -108,7 +105,6 @@ struct ActiveWindow {
     pid: Option<i32>,
 }
 
-/// None off Hyprland or without a focused window, a name pattern is no reason to fail a capture.
 pub fn active_window_names() -> Option<Window> {
     let window: ActiveWindow = hyprctl("activewindow").ok()?;
     let process = window
@@ -129,13 +125,6 @@ struct Workspace {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct MonitorWorkspaces {
-    active_workspace: Workspace,
-    special_workspace: Workspace,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct Client {
     at: [i32; 2],
     size: [i32; 2],
@@ -147,18 +136,14 @@ struct Client {
     focus_history_id: i32,
 }
 
-/// The windows on screen, topmost first.
 pub fn visible_windows() -> Result<Vec<Area>> {
-    let monitors: Vec<MonitorWorkspaces> = hyprctl("monitors")?;
-    let visible: Vec<i32> = monitors
+    let visible: Vec<i32> = monitors()?
         .iter()
         .flat_map(|monitor| [monitor.active_workspace.id, monitor.special_workspace.id])
         .collect();
     Ok(stack_windows(hyprctl("clients")?, &visible))
 }
 
-/// shortcut: Hyprland does not report the stacking order, so this assumes floating windows are on
-/// top and otherwise the most recently focused wins. Overlapping windows can pick the wrong one.
 fn stack_windows(mut clients: Vec<Client>, workspaces: &[i32]) -> Vec<Area> {
     clients.retain(|client| {
         client.mapped && !client.hidden && workspaces.contains(&client.workspace.id)
@@ -166,12 +151,7 @@ fn stack_windows(mut clients: Vec<Client>, workspaces: &[i32]) -> Vec<Area> {
     clients.sort_by_key(|client| (!client.floating, client.focus_history_id));
     clients
         .iter()
-        .map(|client| Area {
-            x: f64::from(client.at[0]),
-            y: f64::from(client.at[1]),
-            width: f64::from(client.size[0]),
-            height: f64::from(client.size[1]),
-        })
+        .map(|client| Area::from((client.at, client.size)))
         .collect()
 }
 
@@ -185,15 +165,10 @@ fn monitors() -> Result<Vec<Monitor>> {
 
 fn active_window() -> Result<Area> {
     let window: ActiveWindow = hyprctl("activewindow")?;
-    let (Some([x, y]), Some([width, height])) = (window.at, window.size) else {
+    let (Some(at), Some(size)) = (window.at, window.size) else {
         return Err("no active window".into());
     };
-    Ok(Area {
-        x: f64::from(x),
-        y: f64::from(y),
-        width: f64::from(width),
-        height: f64::from(height),
-    })
+    Ok(Area::from((at, size)))
 }
 
 fn hyprctl<T: DeserializeOwned>(command: &str) -> Result<T> {
@@ -220,15 +195,8 @@ mod tests {
             scale,
             transform,
             focused: false,
-        }
-    }
-
-    fn area(x: f64, y: f64, width: f64, height: f64) -> Area {
-        Area {
-            x,
-            y,
-            width,
-            height,
+            active_workspace: Workspace { id: 1 },
+            special_workspace: Workspace { id: 0 },
         }
     }
 
@@ -268,8 +236,18 @@ mod tests {
     }
 
     #[test]
+    fn hyprland_monitor_json_parses() {
+        let text = r#"[{"id":0,"name":"DP-1","x":1920,"y":0,"width":2560,"height":1440,"scale":1.25,
+            "transform":0,"focused":true,"activeWorkspace":{"id":2,"name":"2"},
+            "specialWorkspace":{"id":0,"name":""}}]"#;
+        let monitors: Vec<Monitor> = serde_json::from_str(text).unwrap();
+        assert_eq!(monitors[0].active_workspace.id, 2);
+        assert_eq!(monitors[0].area(), Area::new(1920.0, 0.0, 2048.0, 1152.0));
+    }
+
+    #[test]
     fn rotated_monitor_swaps_sides() {
         let rotated = monitor(0, 0, 1920, 1080, 1.0, 1);
-        assert_eq!(rotated.area(), area(0.0, 0.0, 1080.0, 1920.0));
+        assert_eq!(rotated.area(), Area::new(0.0, 0.0, 1080.0, 1920.0));
     }
 }

@@ -1,23 +1,8 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core'
   import { onMount } from 'svelte'
-  import { applyTheme } from './lib/theme'
-
-  type Config = {
-    save_dir?: string | null
-    uploader?: string | null
-    after_capture: string[]
-    after_upload: string[]
-    notifications: boolean
-    delay: number
-    name_pattern: string
-    region: { snap_windows: boolean; magnifier: boolean; magnifier_size: number; magnifier_pixels: number }
-    editor: { command: string }
-    tray: { region_hotkey: string }
-    history: { thumbnail_width: number; thumbnail_height: number; max_items: number; filter_missing_files: boolean }
-    ui: { theme: string }
-  }
+  import { eventCombo } from './lib/keys'
+  import { applyTheme, loadPreferences, openConfig, savePreferences, type Config } from './ipc'
 
   const AFTER_CAPTURE = [
     ['AnnotateImage', 'Open in the editor'],
@@ -41,7 +26,6 @@
   let busy = $state(false)
 
   const dirty = $derived(config !== null && JSON.stringify(config) !== saved)
-  /** A name in the file that has no .sxcu here must not vanish from the list. */
   const uploaderChoices = $derived(
     config?.uploader && !uploaders.includes(config.uploader) ? [config.uploader, ...uploaders] : uploaders,
   )
@@ -49,7 +33,7 @@
   async function load() {
     failure = ''
     try {
-      const result = await invoke<{ config: Config; uploaders: string[]; has_hotkey: boolean }>('load_preferences')
+      const result = await loadPreferences()
       config = result.config
       uploaders = result.uploaders
       hasHotkey = result.has_hotkey
@@ -66,8 +50,7 @@
     note = ''
     failure = ''
     try {
-      const sent = $state.snapshot(config)
-      await invoke('save_preferences', { config: sent })
+      await savePreferences($state.snapshot(config))
       saved = JSON.stringify(config)
       note = SAVED
       await applyTheme()
@@ -80,7 +63,7 @@
 
   async function openFile() {
     try {
-      await invoke('open_config')
+      await openConfig()
     } catch (error) {
       failure = String(error)
     }
@@ -97,9 +80,9 @@
   }
 
   function onKeyDown(event: KeyboardEvent) {
-    if ((event.ctrlKey || event.metaKey) && event.key === 's') {
+    if (eventCombo(event) === 'ctrl+s') {
       event.preventDefault()
-      if (dirty) save()
+      if (dirty) void save()
     }
   }
 
@@ -111,6 +94,7 @@
 <div class="settings">
   <main>
     {#if config}
+      {@const c = config}
       <section>
         <h2>Appearance</h2>
         <label class="row">
@@ -135,7 +119,7 @@
                 <input
                   type="checkbox"
                   checked={config.after_capture.includes(name)}
-                  onchange={(event) => toggle(config!.after_capture, name, event.currentTarget.checked)}
+                  onchange={(event) => toggle(c.after_capture, name, event.currentTarget.checked)}
                 />
                 {label}
               </label>
@@ -150,7 +134,7 @@
                 <input
                   type="checkbox"
                   checked={config.after_upload.includes(name)}
-                  onchange={(event) => toggle(config!.after_upload, name, event.currentTarget.checked)}
+                  onchange={(event) => toggle(c.after_upload, name, event.currentTarget.checked)}
                 />
                 {label}
               </label>
@@ -161,7 +145,7 @@
           <span class="name">Uploader</span>
           <select
             value={config.uploader ?? ''}
-            onchange={(event) => (config!.uploader = emptyToNull(event.currentTarget.value))}
+            onchange={(event) => (c.uploader = emptyToNull(event.currentTarget.value))}
           >
             <option value="">None</option>
             {#each uploaderChoices as name (name)}
@@ -184,7 +168,7 @@
             spellcheck="false"
             placeholder="Pictures/accioshot"
             value={config.save_dir ?? ''}
-            oninput={(event) => (config!.save_dir = emptyToNull(event.currentTarget.value))}
+            oninput={(event) => (c.save_dir = emptyToNull(event.currentTarget.value))}
           />
         </label>
         <label class="row">
@@ -212,11 +196,25 @@
         </label>
         <label class="row">
           <span class="name">Magnifier size</span>
-          <input class="number" type="number" min="1" step="1" disabled={!config.region.magnifier} bind:value={config.region.magnifier_size} />
+          <input
+            class="number"
+            type="number"
+            min="1"
+            step="1"
+            disabled={!config.region.magnifier}
+            bind:value={config.region.magnifier_size}
+          />
         </label>
         <label class="row">
           <span class="name">Pixels across</span>
-          <input class="number" type="number" min="1" step="1" disabled={!config.region.magnifier} bind:value={config.region.magnifier_pixels} />
+          <input
+            class="number"
+            type="number"
+            min="1"
+            step="1"
+            disabled={!config.region.magnifier}
+            bind:value={config.region.magnifier_pixels}
+          />
         </label>
         {#if hasHotkey}
           <label class="row">
@@ -236,14 +234,19 @@
           <input
             type="checkbox"
             checked={config.editor.command === BUILTIN}
-            onchange={(event) => (config!.editor.command = event.currentTarget.checked ? BUILTIN : '')}
+            onchange={(event) => (c.editor.command = event.currentTarget.checked ? BUILTIN : '')}
           />
         </label>
         {#if config.editor.command !== BUILTIN}
           <label class="row">
             <span class="name">Command</span>
             <span class="stack">
-              <input type="text" spellcheck="false" placeholder={'satty --filename {input} --output-filename {output}'} bind:value={config.editor.command} />
+              <input
+                type="text"
+                spellcheck="false"
+                placeholder={'satty --filename {input} --output-filename {output}'}
+                bind:value={config.editor.command}
+              />
               <small>&#123;input&#125; and &#123;output&#125; become the file paths.</small>
             </span>
           </label>
@@ -372,7 +375,6 @@
     width: 110px;
     font-variant-numeric: tabular-nums;
   }
-  /* GTK draws its own control otherwise, and this text can vanish on it. */
   select {
     width: 240px;
     appearance: none;
@@ -380,7 +382,6 @@
     padding-right: 28px;
     background: var(--bar) var(--caret) no-repeat right 10px center;
   }
-  /* GTK's own follow its theme and not this one, and can read backwards. */
   input[type='checkbox'] {
     appearance: none;
     -webkit-appearance: none;
@@ -406,13 +407,8 @@
     color: var(--muted);
   }
   .failure {
-    margin: 0;
     padding: 10px 28px;
-    background: var(--failure-bg);
-    color: var(--failure-text);
     white-space: pre-wrap;
-    user-select: text;
-    -webkit-user-select: text;
   }
   footer {
     display: flex;

@@ -4,15 +4,11 @@ import {
   bounds,
   clampRect,
   constrained,
-  eventCombo,
   handles,
   hit,
   hitHandle,
   hitTop,
-  History,
   inside,
-  keymap,
-  normalizeCombo,
   rectBetween,
   reordered,
   resized,
@@ -92,9 +88,24 @@ describe('handles', () => {
   })
 
   it('scales text from its corner', () => {
-    const text: Annotation = { id: 1, kind: 'Text', at: { x: 0, y: 0 }, text: 'hi', color: '#000', size: 20, font: 'sans', width: 40, height: 25 }
+    const text: Annotation = {
+      id: 1,
+      kind: 'Text',
+      at: { x: 0, y: 0 },
+      text: 'hi',
+      color: '#000',
+      size: 20,
+      font: 'sans',
+      width: 40,
+      height: 25,
+    }
     expect(handles(text)).toEqual([{ id: 'b', at: { x: 40, y: 25 } }])
-    expect(resized(text, 'b', { x: 0, y: 50 }, [10, 160])).toMatchObject({ size: 40, width: 80, height: 50, at: { x: 0, y: 0 } })
+    expect(resized(text, 'b', { x: 0, y: 50 }, [10, 160])).toMatchObject({
+      size: 40,
+      width: 80,
+      height: 50,
+      at: { x: 0, y: 0 },
+    })
   })
 })
 
@@ -102,7 +113,12 @@ describe('steps', () => {
   it('renumber when one goes away', () => {
     const all = [step(5), step(6), step(7)]
     expect(stepNumber(all, 7)).toBe(3)
-    expect(stepNumber(all.filter((a) => a.id !== 5), 7)).toBe(2)
+    expect(
+      stepNumber(
+        all.filter((a) => a.id !== 5),
+        7,
+      ),
+    ).toBe(2)
   })
 
   it('keep their numbers across layers', () => {
@@ -131,100 +147,5 @@ describe('inside', () => {
   it('needs the whole annotation in the box', () => {
     expect(inside(shape('Rectangle'), { x: 0, y: 0, width: 120, height: 70 })).toBe(true)
     expect(inside(shape('Rectangle'), { x: 0, y: 0, width: 100, height: 70 })).toBe(false)
-  })
-})
-
-describe('history', () => {
-  it('undoes and redoes', () => {
-    const history = new History()
-    const doc = { annotations: [shape('Line')], crop: null }
-    history.commit(doc)
-    history.undo()
-    expect(history.doc.annotations).toHaveLength(0)
-    expect(history.canRedo).toBe(true)
-    history.redo()
-    expect(history.doc).toBe(doc)
-  })
-
-  it('drops the redo branch on a new change', () => {
-    const history = new History()
-    history.commit({ annotations: [shape('Line')], crop: null })
-    history.undo()
-    history.commit({ annotations: [], crop: null })
-    expect(history.canRedo).toBe(false)
-  })
-
-  it('does nothing past the ends', () => {
-    const history = new History()
-    history.undo()
-    history.redo()
-    expect(history.doc.annotations).toHaveLength(0)
-  })
-})
-
-describe('keys', () => {
-  it('orders modifiers the same way', () => {
-    expect(normalizeCombo('Shift + Ctrl + Z')).toBe('ctrl+shift+z')
-    expect(eventCombo({ key: 'Z', ctrlKey: true, metaKey: false, altKey: false, shiftKey: true })).toBe('ctrl+shift+z')
-  })
-
-  it('lets the user override', () => {
-    const map = keymap({ save: 'ctrl+enter' })
-    expect(map.get('ctrl+enter')).toBe('save')
-    expect(map.get('ctrl+s')).toBeUndefined()
-    expect(map.get('a')).toBe('Arrow')
-  })
-
-  it('rejects unknown actions', () => {
-    expect(() => keymap({ nonsense: 'x' })).toThrow('nonsense')
-  })
-
-  it('copies with ctrl+c unless turned off', () => {
-    expect(keymap({}).get('ctrl+c')).toBe('copy')
-    expect(keymap({ copy: '' }).get('ctrl+c')).toBeUndefined()
-  })
-
-  it('accepts alternatives', () => {
-    const map = keymap({})
-    expect(map.get('ctrl+y')).toBe('redo')
-    expect(map.get('ctrl+shift+z')).toBe('redo')
-  })
-
-  it('lets the user turn a key off', () => {
-    expect(keymap({ Arrow: '' }).get('a')).toBeUndefined()
-  })
-})
-
-describe('zoom and move keys', () => {
-  it('parses the + key', () => {
-    expect(normalizeCombo('ctrl++')).toBe('ctrl++')
-    expect(normalizeCombo('Shift + Ctrl ++')).toBe('ctrl+shift++')
-    expect(normalizeCombo('+')).toBe('+')
-    expect(keymap({}).get('ctrl++')).toBe('zoom_in')
-  })
-
-  it('names the space bar', () => {
-    const combo = eventCombo({ key: ' ', ctrlKey: false, metaKey: false, altKey: false, shiftKey: false })
-    expect(combo).toBe('space')
-    expect(keymap({}).get(combo)).toBe('pan')
-  })
-
-  it('moves with and without Shift', () => {
-    const map = keymap({})
-    expect(map.get('arrowleft')).toBe('move_left')
-    expect(map.get('shift+arrowleft')).toBe('move_left')
-  })
-})
-
-describe('History.replace', () => {
-  it('changes the state without an undo step', () => {
-    const history = new History()
-    const first = { annotations: [shape('Rectangle')], crop: null }
-    const moved = { annotations: [translated(shape('Rectangle'), 1, 0)], crop: null }
-    history.commit(first)
-    history.replace(moved)
-    expect(history.doc).toBe(moved)
-    history.undo()
-    expect(history.doc.annotations).toEqual([])
   })
 })

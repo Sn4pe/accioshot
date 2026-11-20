@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The tray. Captures still run as `accioshot capture`, here and from key bindings, so both write
-//! the same history and a crash in a capture cannot take the tray down.
-
 #[cfg(target_os = "linux")]
 #[path = "linux.rs"]
 mod platform;
@@ -11,7 +8,7 @@ mod platform;
 mod platform;
 
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
@@ -19,27 +16,25 @@ use std::time::{Duration, SystemTime};
 pub use platform::run;
 
 use crate::Result;
+use crate::capture::Mode;
 use crate::history::{self, Entry};
 
 const RECENT_COUNT: usize = 10;
 const HISTORY_POLL: Duration = Duration::from_secs(2);
-// Otherwise the frozen capture can include the tray menu while it closes.
 const MENU_CLOSE_DELAY: Duration = Duration::from_millis(250);
-const MODES: [(&str, &str); 5] = [
-    ("Region", "region"),
-    ("Last region", "last-region"),
-    ("Active window", "window"),
-    ("Focused monitor", "monitor"),
-    ("All monitors", "screen"),
+const MODES: [(&str, Mode); 5] = [
+    ("Region", Mode::Region),
+    ("Last region", Mode::LastRegion),
+    ("Active window", Mode::Window),
+    ("Focused monitor", Mode::Monitor),
+    ("All monitors", Mode::Screen),
 ];
 
-/// Held until the process exits, the kernel releases it even after a crash.
 fn single_instance() -> Result<File> {
     lock("accioshot.lock")?.ok_or_else(|| "accioshot daemon is already running".into())
 }
 
 pub(crate) fn lock(name: &str) -> Result<Option<File>> {
-    // macOS has no runtime directory, and its temporary one is already per user.
     let dir = match cfg!(target_os = "macos") {
         true => std::env::temp_dir(),
         false => dirs::runtime_dir().ok_or("XDG_RUNTIME_DIR is not set")?,
@@ -69,7 +64,6 @@ fn entry_label(entry: &Entry) -> String {
         .unwrap_or_else(|| entry.time.clone())
 }
 
-/// What clicking a recent capture copies.
 fn entry_text(entry: &Entry) -> String {
     entry
         .url
@@ -78,11 +72,12 @@ fn entry_text(entry: &Entry) -> String {
         .unwrap_or_default()
 }
 
-fn spawn_capture(exe: PathBuf, mode: &'static str, delay: Duration) {
+fn spawn_capture(exe: PathBuf, mode: Mode, delay: Duration) {
     std::thread::spawn(move || {
         std::thread::sleep(delay);
         let result = Command::new(exe)
-            .args(["capture", mode])
+            .arg("capture")
+            .arg(mode.name())
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .status();
@@ -94,8 +89,7 @@ fn spawn_capture(exe: PathBuf, mode: &'static str, delay: Duration) {
 
 static OPEN_WINDOWS: Mutex<Vec<(&'static str, u32)>> = Mutex::new(Vec::new());
 
-/// `window` is `history` or `settings`.
-fn spawn_ui(exe: &Path, window: &'static str) {
+fn spawn_ui(window: &'static str) {
     let mut open = OPEN_WINDOWS
         .lock()
         .unwrap_or_else(|error| error.into_inner());
@@ -103,7 +97,7 @@ fn spawn_ui(exe: &Path, window: &'static str) {
         raise(pid);
         return;
     }
-    let mut child = match Command::new(crate::editor::ui_binary(exe))
+    let mut child = match Command::new(accioshot::sibling_binary(accioshot::UI_BINARY))
         .arg(window)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -115,7 +109,7 @@ fn spawn_ui(exe: &Path, window: &'static str) {
     let pid = child.id();
     open.push((window, pid));
     std::thread::spawn(move || {
-        let _ = child.wait();
+        child.wait().ok();
         OPEN_WINDOWS
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -136,12 +130,9 @@ fn raise(pid: u32) {
 fn raise(_pid: u32) {}
 
 fn open(target: &std::ffi::OsStr) {
-    let target = target.to_os_string();
-    std::thread::spawn(move || {
-        if let Err(error) = Command::new(crate::OPENER).arg(target).status() {
-            eprintln!("accioshot: cannot run {}: {error}", crate::OPENER);
-        }
-    });
+    if let Err(error) = accioshot::open(target) {
+        eprintln!("accioshot: {error}");
+    }
 }
 
 #[cfg(test)]

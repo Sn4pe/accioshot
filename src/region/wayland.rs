@@ -33,8 +33,8 @@ use crate::capture::Area;
 
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
+const MAX_ROUNDTRIPS: usize = 10;
 
-/// False on compositors without layer-shell, such as GNOME.
 pub fn available() -> bool {
     let Ok(connection) = Connection::connect_to_env() else {
         return false;
@@ -45,8 +45,6 @@ pub fn available() -> bool {
     LayerShell::bind(&globals, &queue.handle()).is_ok()
 }
 
-/// Returns the selected area and the monitor layout it refers to, or None if cancelled. `windows`
-/// can be clicked instead of dragging, topmost first.
 pub fn select(
     image: &RgbaImage,
     windows: Vec<Area>,
@@ -78,9 +76,19 @@ pub fn select(
         failure: None,
     };
 
-    // Outputs and their logical geometry arrive in separate rounds.
-    queue.roundtrip(&mut overlay)?;
-    queue.roundtrip(&mut overlay)?;
+    for _ in 0..MAX_ROUNDTRIPS {
+        queue.roundtrip(&mut overlay)?;
+        let mut outputs = overlay.output_state.outputs().peekable();
+        if outputs.peek().is_some()
+            && outputs.all(|output| {
+                overlay.output_state.info(&output).is_some_and(|info| {
+                    info.logical_position.is_some() && info.logical_size.is_some()
+                })
+            })
+        {
+            break;
+        }
+    }
 
     for output in overlay.output_state.outputs() {
         let info = overlay
@@ -91,12 +99,7 @@ pub fn select(
         else {
             return Err("monitor without logical geometry".into());
         };
-        let area = Area {
-            x: f64::from(x),
-            y: f64::from(y),
-            width: f64::from(width),
-            height: f64::from(height),
-        };
+        let area = Area::from(([x, y], [width, height]));
 
         let surface = compositor.create_surface(&qh);
         let layer = layer_shell.create_layer_surface(
@@ -133,7 +136,7 @@ pub fn select(
             return Err(failure.into());
         }
         if let Some(result) = overlay.gesture.result.take() {
-            return Ok(result.map(|area| (area, overlay.layout.clone())));
+            return Ok(result.selected().map(|area| (area, overlay.layout.clone())));
         }
     }
 }
@@ -292,7 +295,7 @@ impl OutputHandler for Overlay {
 
 impl LayerShellHandler for Overlay {
     fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &LayerSurface) {
-        self.gesture.result = Some(None);
+        self.gesture.cancel();
     }
 
     fn configure(
@@ -397,7 +400,7 @@ impl KeyboardHandler for Overlay {
         event: KeyEvent,
     ) {
         if event.keysym == Keysym::Escape {
-            self.gesture.result = Some(None);
+            self.gesture.cancel();
         }
     }
 
@@ -464,7 +467,7 @@ impl PointerHandler for Overlay {
                 PointerEventKind::Press {
                     button: BTN_RIGHT, ..
                 } => {
-                    self.gesture.result = Some(None);
+                    self.gesture.cancel();
                 }
                 PointerEventKind::Release {
                     button: BTN_LEFT, ..

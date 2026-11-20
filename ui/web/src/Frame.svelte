@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core'
   import { onDestroy } from 'svelte'
+  import { thumbnail } from './ipc'
   import { clock, title, type Item } from './lib/library'
 
   let {
@@ -9,6 +9,7 @@
     width,
     height,
     selected,
+    current,
     onselect,
     onopen,
     ondrag,
@@ -17,6 +18,7 @@
     width: number
     height: number
     selected: boolean
+    current: boolean
     onselect: (event: MouseEvent) => void
     onopen: () => void
     ondrag: (icon: string) => void
@@ -29,13 +31,12 @@
     !entry.path ? 'Uploaded only' : !item.exists ? 'File is gone' : failed ? 'Cannot read this file' : '',
   )
 
-  /** A long history holds hundreds of big files, so only what scrolls into view gets decoded. */
   function whenVisible(node: HTMLElement) {
     const observer = new IntersectionObserver(
       (seen) => {
         if (seen.some((one) => one.isIntersecting)) {
           observer.disconnect()
-          load()
+          void load()
         }
       },
       { rootMargin: '200px' },
@@ -44,8 +45,10 @@
     return () => observer.disconnect()
   }
 
-  const BLANK = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+  const BLANK =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
   let blob: Blob | null = null
+  let destroyed = false
 
   function iconUrl(): Promise<string> {
     return new Promise((resolve) => {
@@ -64,7 +67,8 @@
   async function load() {
     if (!entry.path || !item.exists) return
     try {
-      const bytes = await invoke<ArrayBuffer>('thumbnail', { entry })
+      const bytes = await thumbnail(entry)
+      if (destroyed) return
       blob = new Blob([bytes], { type: 'image/png' })
       src = URL.createObjectURL(blob)
     } catch {
@@ -73,6 +77,7 @@
   }
 
   onDestroy(() => {
+    destroyed = true
     if (src) URL.revokeObjectURL(src)
   })
 </script>
@@ -86,6 +91,9 @@
   draggable={item.exists}
   ondragstart={drag}
   {@attach whenVisible}
+  {@attach (node) => {
+    if (current) node.scrollIntoView({ block: 'nearest' })
+  }}
 >
   <span class="plate" style:width="{width}px" style:height="{height}px">
     {#if src}

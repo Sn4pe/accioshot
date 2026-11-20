@@ -1,23 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-
-//! File name patterns, a subset of ShareX's NameParser. Copyright (c) 2007-2026 ShareX Team.
-//!
-//! Unlike ShareX this reads the pattern once from left to right, so a window title holding `%y`
-//! stays text. The auto-increment tokens are left out, they need a persistent counter.
+// Ported from ShareX.HelpersLib/NameParser.
+// Copyright (c) 2007-2026 ShareX Team
+// Copyright (c) 2026 David
 
 use std::fs::File;
-use std::io::Read;
+use std::io::{self, Read};
 
 use chrono::{DateTime, Local};
 
 const FALLBACK_NAME: &str = "accioshot";
-/// Room for the extension and the suffix of a repeated name in the usual 255 byte limit.
 const MAX_NAME_BYTES: usize = 200;
 const ALPHANUMERIC: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const DIGITS: &[u8] = b"0123456789";
 const HEXADECIMAL: &[u8] = b"0123456789abcdef";
 const MAX_RANDOM_LENGTH: usize = 64;
-/// Longer tokens first, `%y` must not win over `%yy`.
 const TOKENS: &[&str] = &[
     "height", "width", "guid", "mon2", "unix", "mon", "cn", "mi", "mo", "ms", "pm", "pn", "ra",
     "rn", "rx", "un", "wy", "yy", "d", "h", "s", "t", "y",
@@ -40,17 +36,16 @@ pub fn needs_window(pattern: &str) -> bool {
     pattern.contains("%t") || pattern.contains("%pn")
 }
 
-pub fn file_name(pattern: &str, source: &Source) -> String {
-    let name = sanitize(&expand(pattern, source));
+pub fn file_name(pattern: &str, source: &Source) -> io::Result<String> {
+    let name = sanitize(&expand(pattern, source)?);
     let name = if name.is_empty() {
         FALLBACK_NAME
     } else {
         &name
     };
-    format!("{name}.png")
+    Ok(format!("{name}.png"))
 }
 
-/// Reads the size from the PNG header, the name does not justify decoding the image.
 pub fn png_size(png: &[u8]) -> (u32, u32) {
     let number = |range: std::ops::Range<usize>| {
         png.get(range)
@@ -60,33 +55,42 @@ pub fn png_size(png: &[u8]) -> (u32, u32) {
     (number(16..20), number(20..24))
 }
 
-fn expand(pattern: &str, source: &Source) -> String {
+fn expand(pattern: &str, source: &Source) -> io::Result<String> {
     let twelve_hours = pattern.contains("%pm");
     let mut output = String::new();
     let mut rest = pattern;
-    while let Some(start) = rest.find('%') {
-        output.push_str(&rest[..start]);
-        rest = &rest[start + 1..];
-        match TOKENS.iter().find(|token| rest.starts_with(**token)) {
-            Some(token) => {
-                rest = &rest[token.len()..];
-                match *token {
-                    "rn" | "ra" | "rx" => {
-                        let (length, after) = random_length(rest);
-                        rest = after;
-                        output.push_str(&random_token(token, length));
-                    }
-                    _ => output.push_str(&value(token, source, twelve_hours)),
-                }
+    while let Some((before, after)) = rest.split_once('%') {
+        output.push_str(before);
+        rest = after;
+        let found = TOKENS
+            .iter()
+            .find_map(|token| Some((*token, rest.strip_prefix(token)?)));
+        let Some((token, after)) = found else {
+            output.push('%');
+            continue;
+        };
+        rest = after;
+        let expanded = match token {
+            "rn" | "ra" | "rx" => {
+                let (length, after) = random_length(rest);
+                rest = after;
+                Some(random_token(token, length)?)
             }
-            None => output.push('%'),
+            _ => value(token, source, twelve_hours)?,
+        };
+        match expanded {
+            Some(text) => output.push_str(&text),
+            None => {
+                output.push('%');
+                output.push_str(token);
+            }
         }
     }
     output.push_str(rest);
-    output
+    Ok(output)
 }
 
-fn value(token: &str, source: &Source, twelve_hours: bool) -> String {
+fn value(token: &str, source: &Source, twelve_hours: bool) -> io::Result<Option<String>> {
     let date = |format: &str| source.now.format(format).to_string();
     let window = |read: fn(&Window) -> &str| {
         source
@@ -97,11 +101,10 @@ fn value(token: &str, source: &Source, twelve_hours: bool) -> String {
         0 => String::new(),
         value => value.to_string(),
     };
-    match token {
+    Ok(Some(match token {
         "y" => date("%Y"),
         "yy" => date("%y"),
         "mo" => date("%m"),
-        // shortcut: English names only, ShareX's %mon is localized. Add chrono's locales if asked.
         "mon" | "mon2" => date("%B"),
         "d" => date("%d"),
         "h" if twelve_hours => date("%I"),
@@ -112,7 +115,7 @@ fn value(token: &str, source: &Source, twelve_hours: bool) -> String {
         "pm" => date("%p"),
         "wy" => date("%V"),
         "unix" => source.now.timestamp().to_string(),
-        "guid" => guid(),
+        "guid" => guid()?,
         "width" => dimension(source.width),
         "height" => dimension(source.height),
         "un" => std::env::var("USER").unwrap_or_default(),
@@ -121,11 +124,10 @@ fn value(token: &str, source: &Source, twelve_hours: bool) -> String {
             .unwrap_or_default(),
         "t" => window(|window| &window.title),
         "pn" => window(|window| &window.process),
-        _ => unreachable!("every token in TOKENS has a value"),
-    }
+        _ => return Ok(None),
+    }))
 }
 
-/// ShareX's `%ra{10}`: repeats a random token.
 fn random_length(rest: &str) -> (usize, &str) {
     let parsed = rest.strip_prefix('{').and_then(|inner| {
         let (number, after) = inner.split_once('}')?;
@@ -137,31 +139,26 @@ fn random_length(rest: &str) -> (usize, &str) {
     }
 }
 
-fn random_token(token: &str, length: usize) -> String {
+fn random_token(token: &str, length: usize) -> io::Result<String> {
     let alphabet = match token {
         "rn" => DIGITS,
         "ra" => ALPHANUMERIC,
         _ => HEXADECIMAL,
     };
-    random_bytes(length)
+    Ok(random_bytes(length)?
         .iter()
         .map(|byte| char::from(alphabet[usize::from(*byte) % alphabet.len()]))
-        .collect()
+        .collect())
 }
 
-/// shortcut: modulo is slightly biased and fine for names, these are not secrets.
-fn random_bytes(length: usize) -> Vec<u8> {
+fn random_bytes(length: usize) -> io::Result<Vec<u8>> {
     let mut bytes = vec![0; length];
-    let read = File::open("/dev/urandom").and_then(|mut file| file.read_exact(&mut bytes));
-    if read.is_err() {
-        // Still a usable name, the save step never overwrites.
-        bytes.fill(0);
-    }
-    bytes
+    File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+    Ok(bytes)
 }
 
-fn guid() -> String {
-    let mut bytes = random_bytes(16);
+fn guid() -> io::Result<String> {
+    let mut bytes = random_bytes(16)?;
     bytes[6] = bytes[6] & 0x0F | 0x40;
     bytes[8] = bytes[8] & 0x3F | 0x80;
     let hex = |range: std::ops::Range<usize>| -> String {
@@ -170,22 +167,20 @@ fn guid() -> String {
             .map(|byte| format!("{byte:02x}"))
             .collect()
     };
-    format!(
+    Ok(format!(
         "{}-{}-{}-{}-{}",
         hex(0..4),
         hex(4..6),
         hex(6..8),
         hex(8..10),
         hex(10..16)
-    )
+    ))
 }
 
-/// Same as ShareX's SanitizeInput, a title reads better without spaces.
 fn window_text(text: &str) -> String {
     text.trim().replace(' ', "_")
 }
 
-/// The name reaches disks and uploaders, so nothing that means something in a path survives.
 fn sanitize(name: &str) -> String {
     let clean: String = name
         .chars()
@@ -195,12 +190,13 @@ fn sanitize(name: &str) -> String {
             character => character,
         })
         .collect();
-    let clean = clean.trim().trim_start_matches('.');
-    let mut end = clean.len().min(MAX_NAME_BYTES);
-    while !clean.is_char_boundary(end) {
-        end -= 1;
-    }
-    clean[..end].to_string()
+    clean
+        .trim()
+        .trim_start_matches('.')
+        .char_indices()
+        .take_while(|(start, character)| start + character.len_utf8() <= MAX_NAME_BYTES)
+        .map(|(_, character)| character)
+        .collect()
 }
 
 #[cfg(test)]
@@ -218,7 +214,7 @@ mod tests {
     }
 
     fn name(pattern: &str) -> String {
-        file_name(pattern, &source(None))
+        file_name(pattern, &source(None)).unwrap()
     }
 
     #[test]
@@ -238,6 +234,19 @@ mod tests {
     }
 
     #[test]
+    fn every_token_has_a_value() {
+        for token in TOKENS
+            .iter()
+            .filter(|token| !["rn", "ra", "rx"].contains(token))
+        {
+            assert!(
+                value(token, &source(None), false).unwrap().is_some(),
+                "{token}"
+            );
+        }
+    }
+
+    #[test]
     fn unknown_tokens_stay_as_text() {
         assert_eq!(name("100%-%q%"), "100%-%q%.png");
     }
@@ -246,16 +255,16 @@ mod tests {
     fn random_tokens_repeat_and_are_capped() {
         let digits = name("%rn{8}");
         assert_eq!(digits.len(), "12345678.png".len());
-        assert!(digits[..8].bytes().all(|byte| byte.is_ascii_digit()));
+        assert!(digits.bytes().take(8).all(|byte| byte.is_ascii_digit()));
         assert_eq!(name("%ra").len(), "x.png".len());
         assert_eq!(name("%rx{9999}").len(), MAX_RANDOM_LENGTH + ".png".len());
     }
 
     #[test]
     fn guid_has_the_right_shape() {
-        let value = guid();
+        let value = guid().unwrap();
         assert_eq!(value.len(), 36);
-        assert_eq!(&value[14..15], "4");
+        assert_eq!(value.chars().nth(14), Some('4'));
     }
 
     #[test]
@@ -264,9 +273,12 @@ mod tests {
             title: " ../../etc/passwd %y ".to_string(),
             process: "fire fox".to_string(),
         };
-        let title = file_name("%t", &source(Some(&window)));
+        let title = file_name("%t", &source(Some(&window))).unwrap();
         assert_eq!(title, "_.._etc_passwd_%y.png");
-        assert_eq!(file_name("%pn", &source(Some(&window))), "fire_fox.png");
+        assert_eq!(
+            file_name("%pn", &source(Some(&window))).unwrap(),
+            "fire_fox.png"
+        );
     }
 
     #[test]

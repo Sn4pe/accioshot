@@ -1,5 +1,4 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-/* Catppuccin, https://catppuccin.com. Keep --bg in step with ui/src/theme.rs. */
 :root,
 :root[data-theme='latte'] {
   color-scheme: light;
@@ -13,7 +12,7 @@
   --strong: #4c4f69;
   --soft: #5c5f77;
   --muted: #5c5f77;
-  --faint: #5c5f77; /* subtext0 falls below 4.5:1 on Latte */
+  --faint: #5c5f77;
   --disabled: #acb0be;
   --primary: #4c4f69;
   --primary-hover: #5c5f77;
@@ -21,7 +20,7 @@
   --on-primary: #eff1f5;
   --on-primary-disabled: #8c8fa1;
   --danger: #d20f39;
-  --danger-hover: color-mix(in srgb, #d20f39 88%, #4c4f69); /* maroon is too light for its label */
+  --danger-hover: color-mix(in srgb, #d20f39 88%, #4c4f69);
   --on-danger: #eff1f5;
   --failure-bg: color-mix(in srgb, #d20f39 22%, #eff1f5);
   --failure-text: #4c4f69;
@@ -115,7 +114,9 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 13px/1.4 system-ui, sans-serif;
+  font:
+    13px/1.4 system-ui,
+    sans-serif;
   overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
@@ -172,4 +173,11 @@ select:focus-visible {
 }
 .primary.danger:hover {
   background: var(--danger-hover);
+}
+.failure {
+  margin: 0;
+  background: var(--failure-bg);
+  color: var(--failure-text);
+  user-select: text;
+  -webkit-user-select: text;
 }

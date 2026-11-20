@@ -1,5 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { bounds, clampRect, handles, rectBetween, stepNumber, type Annotation, type Doc, type Rect, type Shape, type Text } from './model'
+import {
+  bounds,
+  clampRect,
+  handles,
+  rectBetween,
+  stepNumber,
+  type Annotation,
+  type Doc,
+  type Rect,
+  type Shape,
+  type Text,
+} from './model'
 
 export const LINE_HEIGHT = 1.25
 const ARROW_HEAD_LENGTH = 5
@@ -9,7 +20,6 @@ export function imageRect(image: { width: number; height: number }): Rect {
   return { x: 0, y: 0, width: image.width, height: image.height }
 }
 
-/** What the canvas shows: the crop if there is one, otherwise the whole image. */
 export function viewRect(doc: Doc, image: { width: number; height: number }): Rect {
   return doc.crop ?? imageRect(image)
 }
@@ -18,16 +28,23 @@ export function fontOf(size: number, family: string) {
   return `${size}px ${family}`
 }
 
-export function measureText(ctx: CanvasRenderingContext2D, text: string, size: number, family: string) {
-  ctx.save()
+export function context2d(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('this view cannot draw on a canvas')
+  return ctx
+}
+
+let measuring: CanvasRenderingContext2D | null = null
+
+export function measureText(text: string, size: number, family: string) {
+  measuring ??= context2d(document.createElement('canvas'))
+  const ctx = measuring
   ctx.font = fontOf(size, family)
   const lines = text.split('\n')
   const width = Math.max(...lines.map((line) => ctx.measureText(line).width))
-  ctx.restore()
   return { width, height: lines.length * size * LINE_HEIGHT }
 }
 
-/** Dark text on light fills and the reverse, by perceived brightness. */
 export function contrastingInk(color: string) {
   const value = parseInt(color.slice(1, 7), 16)
   const luminance = 0.299 * ((value >> 16) & 255) + 0.587 * ((value >> 8) & 255) + 0.114 * (value & 255)
@@ -40,7 +57,6 @@ function drawArrow(ctx: CanvasRenderingContext2D, shape: Shape) {
   const length = Math.hypot(b.x - a.x, b.y - a.y)
   const head = Math.min(Math.max(size * ARROW_HEAD_LENGTH, ARROW_HEAD_MIN), length)
   const spread = Math.PI / 7
-  // The shaft stops inside the head, or its round cap would poke through the tip.
   const stop = length - head * 0.7
   ctx.beginPath()
   ctx.moveTo(a.x, a.y)
@@ -57,36 +73,52 @@ function drawArrow(ctx: CanvasRenderingContext2D, shape: Shape) {
 function effectArea(ctx: CanvasRenderingContext2D, shape: Shape, view: Rect) {
   const rect = clampRect(rectBetween(shape.a, shape.b), view)
   const source = { x: rect.x - view.x, y: rect.y - view.y, width: rect.width, height: rect.height }
-  return rect.width >= 1 && rect.height >= 1 ? { rect, source, canvas: ctx.canvas as HTMLCanvasElement } : null
+  return rect.width >= 1 && rect.height >= 1 ? { rect, source, canvas: ctx.canvas } : null
 }
 
 function scratch(width: number, height: number) {
   const canvas = document.createElement('canvas')
   canvas.width = Math.max(1, Math.round(width))
   canvas.height = Math.max(1, Math.round(height))
-  return { canvas, ctx: canvas.getContext('2d')! }
+  return { canvas, ctx: context2d(canvas) }
 }
 
 function drawPixelate(ctx: CanvasRenderingContext2D, shape: Shape, view: Rect) {
   const area = effectArea(ctx, shape, view)
   if (!area) return
   const { canvas: small, ctx: smallCtx } = scratch(area.rect.width / shape.size, area.rect.height / shape.size)
-  smallCtx.drawImage(area.canvas, area.source.x, area.source.y, area.source.width, area.source.height, 0, 0, small.width, small.height)
+  smallCtx.drawImage(
+    area.canvas,
+    area.source.x,
+    area.source.y,
+    area.source.width,
+    area.source.height,
+    0,
+    0,
+    small.width,
+    small.height,
+  )
   ctx.save()
   ctx.imageSmoothingEnabled = false
   ctx.drawImage(small, area.rect.x, area.rect.y, area.rect.width, area.rect.height)
   ctx.restore()
 }
 
-/**
- * Scales down in halves and back up the same way. WebKit has no canvas `filter`, so no blur() here.
- * Going past the strength matters: it has to erase detail, this is often hiding something.
- */
 function drawBlur(ctx: CanvasRenderingContext2D, shape: Shape, view: Rect) {
   const area = effectArea(ctx, shape, view)
   if (!area) return
   const levels = [scratch(area.rect.width, area.rect.height)]
-  levels[0].ctx.drawImage(area.canvas, area.source.x, area.source.y, area.source.width, area.source.height, 0, 0, levels[0].canvas.width, levels[0].canvas.height)
+  levels[0].ctx.drawImage(
+    area.canvas,
+    area.source.x,
+    area.source.y,
+    area.source.width,
+    area.source.height,
+    0,
+    0,
+    levels[0].canvas.width,
+    levels[0].canvas.height,
+  )
   for (let factor = 2; factor < shape.size * 2; factor *= 2) {
     const next = scratch(area.rect.width / factor, area.rect.height / factor)
     next.ctx.drawImage(levels[levels.length - 1].canvas, 0, 0, next.canvas.width, next.canvas.height)
@@ -102,7 +134,6 @@ function drawBlur(ctx: CanvasRenderingContext2D, shape: Shape, view: Rect) {
 
 function drawText(ctx: CanvasRenderingContext2D, text: Text) {
   ctx.font = fontOf(text.size, text.font)
-  // Middle of each line box, like CSS, so the text does not jump when the inline editor closes.
   ctx.textBaseline = 'middle'
   ctx.textAlign = 'left'
   text.text.split('\n').forEach((line, i) => {
@@ -154,7 +185,6 @@ export function drawAnnotation(ctx: CanvasRenderingContext2D, annotation: Annota
     case 'Freehand':
       ctx.beginPath()
       annotation.points.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)))
-      // A single click leaves one point, which only draws with a segment.
       if (annotation.points.length === 1) ctx.lineTo(annotation.points[0].x + 0.01, annotation.points[0].y)
       ctx.stroke()
       break
@@ -170,7 +200,6 @@ export function drawAnnotation(ctx: CanvasRenderingContext2D, annotation: Annota
       ctx.font = `600 ${annotation.size * 0.56}px sans-serif`
       ctx.textAlign = 'center'
       ctx.textBaseline = 'alphabetic'
-      // Centered on the digit's real box, textBaseline middle sits visibly high.
       const metrics = ctx.measureText(number)
       const offset = (metrics.actualBoundingBoxAscent - metrics.actualBoundingBoxDescent) / 2
       ctx.fillText(number, annotation.at.x, annotation.at.y + offset)
@@ -196,11 +225,12 @@ export function renderDoc(
   for (const annotation of draftDoc.annotations) drawAnnotation(ctx, annotation, draftDoc, view)
 }
 
-/**
- * Selection marks, in image pixels but sized for the current zoom. Not part of the export.
- * Part of a multiple selection, shapes get a box instead of their handles.
- */
-export function renderSelection(ctx: CanvasRenderingContext2D, annotation: Annotation, scale: number, withHandles = true) {
+export function renderSelection(
+  ctx: CanvasRenderingContext2D,
+  annotation: Annotation,
+  scale: number,
+  withHandles = true,
+) {
   const pixel = 1 / scale
   ctx.save()
   if (!withHandles || annotation.kind === 'Text' || annotation.kind === 'Step' || annotation.kind === 'Freehand') {
@@ -223,7 +253,6 @@ export function renderSelection(ctx: CanvasRenderingContext2D, annotation: Annot
   ctx.restore()
 }
 
-/** Light dashes over a dark line, so the box shows on any image. */
 export function dashedRect(ctx: CanvasRenderingContext2D, r: Rect, pixel: number) {
   ctx.save()
   ctx.lineWidth = pixel
@@ -235,7 +264,6 @@ export function dashedRect(ctx: CanvasRenderingContext2D, r: Rect, pixel: number
   ctx.restore()
 }
 
-// For Blur and Pixelate the size is a strength, not a line around the box.
 const STROKED: readonly string[] = ['Rectangle', 'Ellipse', 'Line', 'Arrow']
 
 function padded(r: Rect, margin: number): Rect {
@@ -244,7 +272,12 @@ function padded(r: Rect, margin: number): Rect {
 
 function box(annotation: Text | Extract<Annotation, { kind: 'Step' }>): Rect {
   if (annotation.kind === 'Text') {
-    return { x: annotation.at.x - 4, y: annotation.at.y - 4, width: annotation.width + 8, height: annotation.height + 8 }
+    return {
+      x: annotation.at.x - 4,
+      y: annotation.at.y - 4,
+      width: annotation.width + 8,
+      height: annotation.height + 8,
+    }
   }
   const half = annotation.size / 2 + 4
   return { x: annotation.at.x - half, y: annotation.at.y - half, width: half * 2, height: half * 2 }
@@ -264,7 +297,7 @@ export async function exportPng(doc: Doc, image: CanvasImageSource, size: { widt
   const canvas = document.createElement('canvas')
   canvas.width = Math.round(view.width)
   canvas.height = Math.round(view.height)
-  renderDoc(canvas.getContext('2d')!, doc, image, size)
+  renderDoc(context2d(canvas), doc, image, size)
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
   if (!blob) throw new Error('could not encode the image')
   return new Uint8Array(await blob.arrayBuffer())

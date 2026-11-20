@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Region selection over a frozen capture, like ShareX: whatever was on screen when the key was
-//! pressed stays visible and in the result, even if the overlay makes panels or popups close.
-
 #[cfg(target_os = "macos")]
 #[path = "macos.rs"]
 mod platform;
@@ -22,20 +19,15 @@ const WHITE: [u8; 4] = [0xFF, 0xFF, 0xFF, 0xFF];
 const BLACK: [u8; 4] = [0x00, 0x00, 0x00, 0xFF];
 const MAGNIFIER_GAP: u32 = 24;
 const DIM_PERCENT: u16 = 45;
-/// Same as ShareX's MinimumSize: a smaller drag is a click that moved a little.
 const MIN_DRAG: f64 = 5.0;
 
-/// Shows the real pixels around the cursor, also on scaled monitors where the overlay is soft.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Magnifier {
-    /// Pixels of the capture per side, odd so one of them is the center.
     pixels: u32,
-    /// Overlay pixels per capture pixel.
     cell: u32,
 }
 
 impl Magnifier {
-    /// Limits from ShareX's RegionCaptureOptions.
     pub fn new(size: u32, pixels: u32) -> Magnifier {
         let pixels = pixels.clamp(3, 35) | 1;
         Magnifier {
@@ -49,16 +41,32 @@ impl Magnifier {
     }
 }
 
-/// What the pointer has done so far, in global logical coordinates.
 #[derive(Default)]
 struct Gesture {
     cursor: Option<(f64, f64)>,
     drag_start: Option<(f64, f64)>,
-    /// Some(None) means cancelled.
-    result: Option<Option<Area>>,
+    result: Option<Outcome>,
+}
+
+enum Outcome {
+    Selected(Area),
+    Cancelled,
+}
+
+impl Outcome {
+    fn selected(self) -> Option<Area> {
+        match self {
+            Outcome::Selected(area) => Some(area),
+            Outcome::Cancelled => None,
+        }
+    }
 }
 
 impl Gesture {
+    fn cancel(&mut self) {
+        self.result = Some(Outcome::Cancelled);
+    }
+
     fn selection(&self) -> Option<Area> {
         Some(rect_between(self.drag_start?, self.cursor?))
     }
@@ -68,11 +76,10 @@ impl Gesture {
         self.drag_start = Some(position);
     }
 
-    /// A click with no window under it selects nothing, keep waiting.
     fn released_at(&mut self, position: (f64, f64), windows: &[Area]) {
         self.cursor = Some(position);
         match released(self.selection(), windows, position) {
-            Some(area) => self.result = Some(Some(area)),
+            Some(area) => self.result = Some(Outcome::Selected(area)),
             None => self.drag_start = None,
         }
     }
@@ -85,7 +92,6 @@ struct View<'a> {
     bright: &'a [u8],
 }
 
-/// Paints the selection, crosshair and magnifier on a canvas that already holds the dimmed image.
 fn paint(
     canvas: &mut [u8],
     view: &View,
@@ -112,10 +118,6 @@ fn paint(
     }
 }
 
-/// Copies the part of the frozen capture under a monitor, as ARGB8888.
-///
-/// shortcut: one buffer pixel per logical pixel, so the preview is soft on scaled monitors. The
-/// result is cropped from the full capture and is not affected. Use wp_viewporter if it bothers.
 fn render_screen(
     image: &RgbaImage,
     layout: &[Area],
@@ -138,7 +140,6 @@ fn render_screen(
     pixels
 }
 
-/// The layout's top left corner and the capture pixels per logical pixel.
 fn image_mapping(image: &RgbaImage, layout: &[Area]) -> (f64, f64, f64) {
     let min_x = layout.iter().map(|a| a.x).fold(f64::INFINITY, f64::min);
     let min_y = layout.iter().map(|a| a.y).fold(f64::INFINITY, f64::min);
@@ -162,12 +163,12 @@ fn dim(pixels: &[u8]) -> Vec<u8> {
 }
 
 fn rect_between(a: (f64, f64), b: (f64, f64)) -> Area {
-    Area {
-        x: a.0.min(b.0),
-        y: a.1.min(b.1),
-        width: (a.0 - b.0).abs(),
-        height: (a.1 - b.1).abs(),
-    }
+    Area::new(
+        a.0.min(b.0),
+        a.1.min(b.1),
+        (a.0 - b.0).abs(),
+        (a.1 - b.1).abs(),
+    )
 }
 
 fn window_at(windows: &[Area], (x, y): (f64, f64)) -> Option<Area> {
@@ -182,14 +183,12 @@ fn window_at(windows: &[Area], (x, y): (f64, f64)) -> Option<Area> {
         .copied()
 }
 
-/// What releasing the button selects: the dragged area, or the window under a click.
 fn released(selection: Option<Area>, windows: &[Area], cursor: (f64, f64)) -> Option<Area> {
     selection
         .filter(|area| area.width >= MIN_DRAG && area.height >= MIN_DRAG)
         .or_else(|| window_at(windows, cursor))
 }
 
-/// The selection in surface pixels, clamped to the monitor, as (left, top, right, bottom).
 fn visible_part(selection: Area, screen: Area, width: u32, height: u32) -> Option<[u32; 4]> {
     let left = (selection.x - screen.x).floor().max(0.0);
     let top = (selection.y - screen.y).floor().max(0.0);
@@ -235,7 +234,6 @@ fn paint_crosshair(canvas: &mut [u8], view: &View, cursor: (f64, f64)) {
     }
 }
 
-/// Where the magnifier goes along one axis: past the cursor, or before it near the far edge.
 fn magnifier_offset(cursor: u32, side: u32, screen: u32) -> u32 {
     if cursor + MAGNIFIER_GAP + side <= screen {
         cursor + MAGNIFIER_GAP
@@ -244,7 +242,6 @@ fn magnifier_offset(cursor: u32, side: u32, screen: u32) -> u32 {
     }
 }
 
-/// `view` is the monitor's area and its surface size.
 fn paint_magnifier(
     canvas: &mut [u8],
     (area, width, height): (Area, u32, u32),
@@ -259,7 +256,6 @@ fn paint_magnifier(
     if x < 0.0 || y < 0.0 || x >= f64::from(width) || y >= f64::from(height) {
         return;
     }
-    // Too small a monitor for it, the crosshair is still there.
     if side + 2 > width || side + 2 > height {
         return;
     }
@@ -317,18 +313,9 @@ fn outline(canvas: &mut [u8], width: u32, [left, top, right, bottom]: [u32; 4]) 
 mod tests {
     use super::*;
 
-    fn area(x: f64, y: f64, width: f64, height: f64) -> Area {
-        Area {
-            x,
-            y,
-            width,
-            height,
-        }
-    }
-
     #[test]
     fn dragging_in_any_direction_gives_the_same_rect() {
-        let expected = area(10.0, 20.0, 30.0, 40.0);
+        let expected = Area::new(10.0, 20.0, 30.0, 40.0);
         assert_eq!(rect_between((10.0, 20.0), (40.0, 60.0)), expected);
         assert_eq!(rect_between((40.0, 60.0), (10.0, 20.0)), expected);
         assert_eq!(rect_between((40.0, 20.0), (10.0, 60.0)), expected);
@@ -343,7 +330,6 @@ mod tests {
                 cell: 10
             }
         );
-        // Even counts have no center pixel.
         assert_eq!(Magnifier::new(150, 16).pixels, 17);
         assert_eq!(
             Magnifier::new(1, 999),
@@ -365,13 +351,12 @@ mod tests {
     fn magnifier_shows_the_capture_pixel_under_the_cursor() {
         let mut image = RgbaImage::new(40, 40);
         image.put_pixel(5, 6, image::Rgba([10, 20, 30, 255]));
-        let layout = [area(0.0, 0.0, 20.0, 20.0)];
+        let layout = [Area::new(0.0, 0.0, 20.0, 20.0)];
         let magnifier = Magnifier::new(50, 3);
         let mut canvas = vec![0u8; 400 * 400 * 4];
         let view = (layout[0], 400, 400);
         paint_magnifier(&mut canvas, view, (2.5, 3.0), magnifier, &image, &layout);
         let cell = magnifier.cell as usize;
-        // Top left of the box is 24 px past the cursor, inside the 1 px frame, center cell + 1.
         let (x, y) = (2 + 24 + 1 + cell + 1, 3 + 24 + 1 + cell + 1);
         let start = (y * 400 + x) * 4;
         assert_eq!(canvas[start..start + 4], [30, 20, 10, 0xFF]);
@@ -379,7 +364,10 @@ mod tests {
 
     #[test]
     fn topmost_window_wins() {
-        let windows = [area(0.0, 0.0, 100.0, 100.0), area(50.0, 50.0, 100.0, 100.0)];
+        let windows = [
+            Area::new(0.0, 0.0, 100.0, 100.0),
+            Area::new(50.0, 50.0, 100.0, 100.0),
+        ];
         assert_eq!(window_at(&windows, (60.0, 60.0)), Some(windows[0]));
         assert_eq!(window_at(&windows, (120.0, 120.0)), Some(windows[1]));
         assert_eq!(window_at(&windows, (150.0, 150.0)), None);
@@ -387,10 +375,10 @@ mod tests {
 
     #[test]
     fn drag_beats_the_window_and_a_small_drag_is_a_click() {
-        let windows = [area(0.0, 0.0, 100.0, 100.0)];
-        let drag = area(10.0, 10.0, 20.0, 20.0);
+        let windows = [Area::new(0.0, 0.0, 100.0, 100.0)];
+        let drag = Area::new(10.0, 10.0, 20.0, 20.0);
         assert_eq!(released(Some(drag), &windows, (30.0, 30.0)), Some(drag));
-        let wobble = area(10.0, 10.0, 2.0, 1.0);
+        let wobble = Area::new(10.0, 10.0, 2.0, 1.0);
         assert_eq!(
             released(Some(wobble), &windows, (12.0, 11.0)),
             Some(windows[0])
@@ -400,9 +388,9 @@ mod tests {
 
     #[test]
     fn selection_across_monitors_is_clamped_to_each() {
-        let selection = area(1900.0, 10.0, 40.0, 20.0);
-        let left = area(0.0, 0.0, 1920.0, 1080.0);
-        let right = area(1920.0, 0.0, 1920.0, 1080.0);
+        let selection = Area::new(1900.0, 10.0, 40.0, 20.0);
+        let left = Area::new(0.0, 0.0, 1920.0, 1080.0);
+        let right = Area::new(1920.0, 0.0, 1920.0, 1080.0);
         assert_eq!(
             visible_part(selection, left, 1920, 1080),
             Some([1900, 10, 1920, 30])
@@ -415,8 +403,8 @@ mod tests {
 
     #[test]
     fn selection_on_another_monitor_is_not_visible() {
-        let selection = area(2000.0, 10.0, 40.0, 20.0);
-        let left = area(0.0, 0.0, 1920.0, 1080.0);
+        let selection = Area::new(2000.0, 10.0, 40.0, 20.0);
+        let left = Area::new(0.0, 0.0, 1920.0, 1080.0);
         assert_eq!(visible_part(selection, left, 1920, 1080), None);
     }
 
@@ -424,7 +412,7 @@ mod tests {
     fn screen_renders_its_part_of_the_capture() {
         let mut image = RgbaImage::new(4, 1);
         image.put_pixel(2, 0, image::Rgba([10, 20, 30, 255]));
-        let layout = [area(0.0, 0.0, 2.0, 1.0), area(2.0, 0.0, 2.0, 1.0)];
+        let layout = [Area::new(0.0, 0.0, 2.0, 1.0), Area::new(2.0, 0.0, 2.0, 1.0)];
         let pixels = render_screen(&image, &layout, layout[1], 2, 1);
         assert_eq!(pixels[..4], [30, 20, 10, 0xFF]);
     }

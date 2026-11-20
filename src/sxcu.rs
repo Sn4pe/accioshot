@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//
 // Ported from ShareX.UploadersLib/CustomUploader/CustomUploaderItem.cs.
 // Copyright (c) 2007-2026 ShareX Team
 // Copyright (c) 2026 David
@@ -18,6 +17,7 @@ use crate::Result;
 use crate::syntax::{Parser, Response};
 
 const PNG_MIME: &str = "image/png";
+const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "PascalCase", default)]
@@ -68,10 +68,7 @@ fn resolve(name: &str) -> Result<PathBuf> {
     if name.contains('/') || name.ends_with(".sxcu") {
         return Ok(Path::new(name).to_path_buf());
     }
-    let config = crate::config::base_dir().ok_or("cannot find the config directory")?;
-    Ok(config
-        .join("accioshot/uploaders")
-        .join(format!("{name}.sxcu")))
+    Ok(crate::config::uploaders_dir()?.join(format!("{name}.sxcu")))
 }
 
 fn parse(text: &str) -> Result<Uploader> {
@@ -127,9 +124,8 @@ impl Uploader {
 
     fn request_url(&self, file_name: &str) -> Result<Url> {
         let url = Parser {
-            file_name,
-            url_encode: true,
-            ..Default::default()
+            encode_file_name: true,
+            ..Parser::new(file_name)
         }
         .parse(&self.request_url)?;
         let url = if url.contains("://") {
@@ -141,10 +137,7 @@ impl Uploader {
         if !matches!(url.scheme(), "http" | "https") {
             return Err(format!("unsupported URL scheme: {}", url.scheme()).into());
         }
-        let parser = Parser {
-            file_name,
-            ..Default::default()
-        };
+        let parser = Parser::new(file_name);
         for (key, value) in &self.parameters {
             url.query_pairs_mut()
                 .append_pair(key, &parser.parse(value)?);
@@ -153,15 +146,11 @@ impl Uploader {
     }
 
     fn header_map(&self, file_name: &str) -> Result<HeaderMap> {
-        let parser = Parser {
-            file_name,
-            ..Default::default()
-        };
+        let parser = Parser::new(file_name);
         let mut map = HeaderMap::new();
         for (key, value) in &self.headers {
             let name = HeaderName::try_from(key.as_str())
                 .map_err(|_| format!("invalid header name: {key}"))?;
-            // No value in the message, headers usually hold tokens.
             let value = HeaderValue::try_from(parser.parse(value)?)
                 .map_err(|_| format!("invalid value for header {key}"))?;
             map.insert(name, value);
@@ -176,10 +165,7 @@ impl Uploader {
     }
 
     fn form(&self, png: Vec<u8>, file_name: &str) -> Result<Form> {
-        let parser = Parser {
-            file_name,
-            ..Default::default()
-        };
+        let parser = Parser::new(file_name);
         let mut form = Form::new();
         for (key, value) in &self.arguments {
             form = form.text(key.clone(), parser.parse(value)?);
@@ -194,7 +180,7 @@ impl Uploader {
         let parser = Parser {
             file_name,
             response: Some(response),
-            url_encode: true,
+            encode_file_name: true,
         };
         if !(200..300).contains(&status) {
             let detail = parser.parse(&self.error_message).unwrap_or_default();
@@ -210,7 +196,6 @@ impl Uploader {
         if url.is_empty() {
             return Err("upload succeeded but the response has no URL".into());
         }
-        // The file is already up, a bad deletion template must not hide its URL.
         let deletion_url = parser
             .parse(&self.deletion_url)
             .ok()
@@ -228,27 +213,37 @@ pub async fn upload(uploader: &Uploader, png: Vec<u8>, file_name: &str) -> Resul
         Body::MultipartFormData => request.multipart(uploader.form(png, file_name)?),
         _ => request.header(CONTENT_TYPE, PNG_MIME).body(png),
     };
-    // Replaces the default Content-Type if the uploader sets its own.
     request = request.headers(uploader.header_map(file_name)?);
 
     let response = request.send().await.map_err(describe)?;
     let status = response.status().as_u16();
     let url = response.url().to_string();
     let headers = response.headers().clone();
-    let text = response.text().await.map_err(describe)?;
+    let text = read_text(response).await?;
     uploader.read_response(&Response { text, url, headers }, status, file_name)
 }
 
-/// reqwest errors include the URL, and request URLs often hold API keys.
+async fn read_text(mut response: reqwest::Response) -> Result<String> {
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(describe)? {
+        if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
+            return Err("upload failed: the response is larger than 1 MiB".into());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(String::from_utf8_lossy(&body).into_owned())
+}
+
 fn describe(error: reqwest::Error) -> Box<dyn Error> {
     let error = error.without_url();
-    let mut message = format!("upload failed: {error}");
-    let mut source = error.source();
-    while let Some(cause) = source {
-        message.push_str(&format!(": {cause}"));
-        source = cause.source();
-    }
-    message.into()
+    let causes: Vec<String> = std::iter::successors(error.source(), |&cause| cause.source())
+        .map(ToString::to_string)
+        .collect();
+    format!(
+        "upload failed: {}",
+        [vec![error.to_string()], causes].concat().join(": ")
+    )
+    .into()
 }
 
 fn migrate_old_syntax(input: &str) -> String {
@@ -378,6 +373,23 @@ mod tests {
             .read_response(&response(r#"{"error":"too big"}"#), 413, "a.png")
             .unwrap_err();
         assert_eq!(error.to_string(), "upload failed: HTTP 413 too big");
+    }
+
+    fn served(body: Vec<u8>) -> Result<String> {
+        let response = reqwest::Response::from(http::Response::new(body));
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(read_text(response))
+    }
+
+    #[test]
+    fn responses_are_read_up_to_a_limit() {
+        assert_eq!(
+            served(b"https://x.test/1".to_vec()).unwrap(),
+            "https://x.test/1"
+        );
+        assert!(served(vec![b'a'; MAX_RESPONSE_BYTES + 1]).is_err());
     }
 
     #[test]

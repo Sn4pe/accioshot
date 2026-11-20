@@ -20,11 +20,11 @@ use super::{
     HISTORY_POLL, MENU_CLOSE_DELAY, MODES, RECENT_COUNT, entry_label, entry_text, history_modified,
     open, single_instance, spawn_capture, spawn_ui,
 };
+use crate::capture::Mode;
 use crate::config::Config;
 use crate::history::{self, Entry};
 use crate::{Result, clipboard};
 
-// Carbon's only API for global shortcuts, and it needs no Accessibility permission.
 const EVENT_CLASS_KEYBOARD: u32 = u32::from_be_bytes(*b"keyb");
 const EVENT_HOT_KEY_PRESSED: u32 = 5;
 const SIGNATURE: u32 = u32::from_be_bytes(*b"acct");
@@ -80,14 +80,12 @@ struct State {
 }
 
 thread_local! {
-    // Menus can only be touched from the main thread, which is where every callback here runs.
     static STATE: RefCell<Option<State>> = const { RefCell::new(None) };
 }
 
 pub fn run() -> Result<()> {
     let _lock = single_instance()?;
     let config = Config::load()?;
-    // Asked now, an update can replace the binary while this runs.
     EXE.set(std::env::current_exe()?)
         .map_err(|_| "started twice")?;
 
@@ -97,6 +95,7 @@ pub fn run() -> Result<()> {
 
     register_shortcut(&config.tray.region_hotkey)?;
 
+    let pictures_dir = config.pictures_dir()?;
     let recent = history::recent(RECENT_COUNT);
     let tray = TrayIconBuilder::new()
         .with_tooltip("accioshot")
@@ -107,7 +106,7 @@ pub fn run() -> Result<()> {
     STATE.with_borrow_mut(|state| {
         *state = Some(State {
             tray,
-            pictures_dir: config.pictures_dir().unwrap_or_default(),
+            pictures_dir,
             seen: history_modified(),
         })
     });
@@ -120,14 +119,11 @@ pub fn run() -> Result<()> {
             ..
         } = event
         {
-            capture("region", Duration::ZERO);
+            capture(Mode::Region, Duration::ZERO);
         }
     }));
 
-    // shortcut: polls the file because captures are separate processes, use FSEvents if a two
-    // second delay in the menu ever matters.
     let timer = CFRunLoopTimer::new(
-        // SAFETY: a plain clock read.
         unsafe { CFAbsoluteTimeGetCurrent() } + HISTORY_POLL.as_secs_f64(),
         HISTORY_POLL.as_secs_f64(),
         0,
@@ -135,7 +131,6 @@ pub fn run() -> Result<()> {
         refresh_recent,
         ptr::null_mut(),
     );
-    // SAFETY: the mode is the framework's own constant.
     CFRunLoop::get_current().add_timer(&timer, unsafe { kCFRunLoopCommonModes });
 
     app.run();
@@ -157,12 +152,11 @@ fn icon() -> Result<Icon> {
 fn menu(recent: &[Entry]) -> Result<Menu> {
     let menu = Menu::new();
     for (label, mode) in MODES {
-        menu.append(&MenuItem::with_id(mode, label, true, None))?;
+        menu.append(&MenuItem::with_id(mode.name(), label, true, None))?;
     }
     menu.append(&PredefinedMenuItem::separator())?;
     let submenu = Submenu::new("Recent", !recent.is_empty());
     for entry in recent {
-        // The text itself, a refresh can replace the list while the menu is open.
         let id = format!("{RECENT_PREFIX}{}", entry_text(entry));
         submenu.append(&MenuItem::with_id(id, entry_label(entry), true, None))?;
     }
@@ -176,14 +170,14 @@ fn menu(recent: &[Entry]) -> Result<Menu> {
 }
 
 fn on_menu(id: &str) {
-    if let Some((_, mode)) = MODES.iter().find(|(_, mode)| *mode == id) {
+    if let Some(&(_, mode)) = MODES.iter().find(|(_, mode)| mode.name() == id) {
         capture(mode, MENU_CLOSE_DELAY);
     } else if id == QUIT {
-        std::process::exit(0);
-    } else if id == HISTORY || id == SETTINGS {
-        if let Some(exe) = EXE.get() {
-            spawn_ui(exe, if id == HISTORY { HISTORY } else { SETTINGS });
+        if let Some(mtm) = MainThreadMarker::new() {
+            NSApplication::sharedApplication(mtm).terminate(None);
         }
+    } else if id == HISTORY || id == SETTINGS {
+        spawn_ui(if id == HISTORY { HISTORY } else { SETTINGS });
     } else if id == OPEN_FOLDER {
         STATE.with_borrow(|state| {
             if let Some(state) = state {
@@ -197,7 +191,7 @@ fn on_menu(id: &str) {
     }
 }
 
-fn capture(mode: &'static str, delay: Duration) {
+fn capture(mode: Mode, delay: Duration) {
     if let Some(exe) = EXE.get() {
         spawn_capture(exe.clone(), mode, delay);
     }
@@ -231,7 +225,6 @@ fn register_shortcut(shortcut: &str) -> Result<()> {
         signature: SIGNATURE,
         id: 1,
     };
-    // SAFETY: the arguments outlive the calls, and the registration lasts until the process exits.
     unsafe {
         let target = GetApplicationEventTarget();
         let status = InstallEventHandler(
@@ -255,6 +248,6 @@ fn register_shortcut(shortcut: &str) -> Result<()> {
 }
 
 extern "C" fn on_shortcut(_: *mut c_void, _: *mut c_void, _: *mut c_void) -> i32 {
-    capture("region", Duration::ZERO);
+    capture(Mode::Region, Duration::ZERO);
     0
 }
