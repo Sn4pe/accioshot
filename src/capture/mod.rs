@@ -25,15 +25,17 @@ pub const CANCELLED: &str = "capture cancelled";
 
 #[derive(Clone, Copy, ValueEnum)]
 pub enum Mode {
-    /// Select an area on a frozen capture of the screen
+    #[value(help = "Select an area on a frozen capture of the screen")]
     Region,
-    /// The last selected area, asks for one if there is none or the screen size changed
+    #[value(
+        help = "The last selected area, asks for one if there is none or the screen size changed"
+    )]
     LastRegion,
-    /// Active window (Hyprland only on Linux)
+    #[value(help = "Active window (Hyprland only on Linux)")]
     Window,
-    /// Focused monitor (Hyprland only on Linux)
+    #[value(help = "Focused monitor (Hyprland only on Linux)")]
     Monitor,
-    /// All monitors
+    #[value(help = "All monitors")]
     Screen,
 }
 

@@ -31,11 +31,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Take a screenshot. Prints the URL if uploaded, otherwise the saved path.
+    #[command(about = "Take a screenshot. Prints the URL if uploaded, otherwise the saved path")]
     Capture(CaptureArgs),
-    /// Run the tray icon, on macOS also the region shortcut
+    #[command(about = "Run the tray icon, on macOS also the region shortcut")]
     Daemon,
-    /// Copy text from stdin to the clipboard, or an image with --image
+    #[command(about = "Copy text from stdin to the clipboard, or an image with --image")]
     Copy {
         #[arg(long, value_name = "PNG")]
         image: Option<PathBuf>,
@@ -45,20 +45,33 @@ enum Command {
 #[derive(Args)]
 struct CaptureArgs {
     mode: capture::Mode,
-    /// Save to this directory. Any flag replaces the actions in the config
-    #[arg(long, value_name = "DIR")]
+    #[arg(
+        long,
+        value_name = "DIR",
+        help = "Save to this directory. Any flag replaces the actions in the config"
+    )]
     save: Option<PathBuf>,
-    /// Copy to the clipboard: the URL if uploading, otherwise the image
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Copy to the clipboard: the URL if uploading, otherwise the image"
+    )]
     copy: bool,
-    /// Open the capture in the editor first, the other actions get the edited image
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Open the capture in the editor first, the other actions get the edited image"
+    )]
     edit: bool,
-    /// Upload with a .sxcu file: a path, or a name in ~/.config/accioshot/uploaders
-    #[arg(long, value_name = "UPLOADER")]
+    #[arg(
+        long,
+        value_name = "UPLOADER",
+        help = "Upload with a .sxcu file: a path, or a name in ~/.config/accioshot/uploaders"
+    )]
     upload: Option<String>,
-    /// Seconds to wait before capturing, for menus and tooltips. Replaces `delay` in the config
-    #[arg(long, value_name = "SECONDS")]
+    #[arg(
+        long,
+        value_name = "SECONDS",
+        help = "Seconds to wait before capturing, for menus and tooltips. Replaces `delay` in the config"
+    )]
     delay: Option<f64>,
 }
 
