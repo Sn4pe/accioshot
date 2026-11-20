@@ -255,7 +255,8 @@ fn frontmost_window() -> Result<FrontWindow> {
     let windows = normal_windows()?;
     let window = windows.first().ok_or("no active window")?;
     Ok(FrontWindow {
-        id: number(window, unsafe { kCGWindowNumber }).unwrap_or_default() as i64,
+        id: number(window, unsafe { kCGWindowNumber }).ok_or("the active window has no number")?
+            as i64,
         // Hidden from apps without the screen recording permission.
         title: text(window, unsafe { kCGWindowName }).unwrap_or_default(),
         process: text(window, unsafe { kCGWindowOwnerName }).unwrap_or_default(),
