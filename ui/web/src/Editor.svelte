@@ -859,6 +859,7 @@
       </button>
       <button
         class="tool zoom"
+        aria-label="{Math.round(scale * 100)}%, fit to the window"
         title={'Fit to the window' + shortcut('zoom_fit')}
         disabled={!image || zoom === null}
         onclick={() => setZoom(null)}
