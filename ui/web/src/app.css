@@ -175,3 +175,10 @@ select:focus-visible {
 .primary.danger:hover {
   background: var(--danger-hover);
 }
+.failure {
+  margin: 0;
+  background: var(--failure-bg);
+  color: var(--failure-text);
+  user-select: text;
+  -webkit-user-select: text;
+}

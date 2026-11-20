@@ -392,12 +392,7 @@
     color: var(--muted);
   }
   .failure {
-    margin: 0;
     padding: 10px 16px;
-    background: var(--failure-bg);
-    color: var(--failure-text);
-    user-select: text;
-    -webkit-user-select: text;
   }
   footer {
     display: flex;

@@ -743,11 +743,7 @@
     top: 16px;
     left: 24px;
     right: 24px;
-    margin: 0;
     padding: 10px 14px;
-    background: var(--failure-bg);
-    color: var(--failure-text);
     border-radius: 4px;
-    user-select: text;
   }
 </style>
