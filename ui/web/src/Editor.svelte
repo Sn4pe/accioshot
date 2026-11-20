@@ -824,7 +824,7 @@
     <div class="style">
       {#if settings && COLORED.includes(styleTarget)}
         <div class="swatches" role="group" aria-label="Color">
-          {#each styleTarget === 'Highlight' ? [settings.highlight_color, ...settings.colors] : settings.colors as color (color)}
+          {#each new Set(styleTarget === 'Highlight' ? [settings.highlight_color, ...settings.colors] : settings.colors) as color (color)}
             <button
               class="swatch"
               class:current={style.color === color}

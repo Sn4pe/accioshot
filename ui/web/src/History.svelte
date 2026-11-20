@@ -239,7 +239,7 @@
       {:else if items && !shown.length}
         <p class="empty">Nothing matches.</p>
       {/if}
-      {#each days as day}
+      {#each days as day (day.label)}
         <section>
           <h2>{day.label}</h2>
           <div class="sheet" style:grid-template-columns="repeat(auto-fill, {width + 12}px)">
