@@ -7,11 +7,14 @@ mod history;
 mod preferences;
 mod theme;
 
+#[cfg(target_os = "linux")]
+use std::cell::Cell;
 use std::ffi::OsString;
 #[cfg(target_os = "linux")]
 use std::path::Path;
 use std::process::ExitCode;
-use std::time::Duration;
+#[cfg(target_os = "linux")]
+use std::rc::Rc;
 
 use accioshot::config::Config;
 #[cfg(target_os = "linux")]
@@ -21,7 +24,6 @@ use tauri::{LogicalSize, Manager, WebviewWindow};
 const USAGE: &str = "usage: accioshot-ui edit <input.png> <output.png> | history | settings";
 #[cfg(target_os = "linux")]
 const DMABUF_VARIABLE: &str = "WEBKIT_DISABLE_DMABUF_RENDERER";
-const FLOAT_SETTLE: Duration = Duration::from_millis(300);
 const HISTORY_SIZE: (u32, u32) = (1120, 760);
 const SETTINGS_SIZE: (u32, u32) = (720, 760);
 #[cfg(target_os = "linux")]
@@ -80,20 +82,44 @@ fn work_around_missing_font_dpi() {
     }
 }
 
-fn show_floating(window: WebviewWindow, size: LogicalSize<u32>) -> tauri::Result<()> {
+#[cfg(target_os = "linux")]
+fn show_floating(
+    window: WebviewWindow,
+    size: LogicalSize<u32>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use gtk::prelude::{ObjectExt, WidgetExt};
+
     window.set_min_size(Some(size))?;
     window.set_max_size(Some(size))?;
-    window.show()?;
-    std::thread::spawn(move || {
-        std::thread::sleep(FLOAT_SETTLE);
-        let resizable = window
-            .set_min_size(None::<LogicalSize<u32>>)
-            .and_then(|()| window.set_max_size(None::<LogicalSize<u32>>));
-        if let Err(error) = resizable {
-            eprintln!("accioshot-ui: {error}");
-        }
+    let shown = window.clone();
+    window.gtk_window()?.connect_realize(move |widget| {
+        let Some(clock) = widget.frame_clock() else {
+            eprintln!("accioshot-ui: the window has no frame clock");
+            return;
+        };
+        let window = shown.clone();
+        let handler = Rc::new(Cell::new(None));
+        let first_paint = Rc::clone(&handler);
+        let id = clock.connect_after_paint(move |clock| {
+            if let Some(id) = first_paint.take() {
+                clock.disconnect(id);
+            }
+            let resizable = window
+                .set_min_size(None::<LogicalSize<u32>>)
+                .and_then(|()| window.set_max_size(None::<LogicalSize<u32>>));
+            if let Err(error) = resizable {
+                eprintln!("accioshot-ui: {error}");
+            }
+        });
+        handler.set(Some(id));
     });
+    window.show()?;
     Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn show_floating(window: WebviewWindow, _size: LogicalSize<u32>) -> tauri::Result<()> {
+    window.show()
 }
 
 fn fail(error: impl std::fmt::Display) -> ExitCode {
