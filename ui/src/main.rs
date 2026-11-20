@@ -2,6 +2,7 @@
 
 mod drag;
 mod editor;
+mod error;
 mod history;
 mod preferences;
 mod theme;

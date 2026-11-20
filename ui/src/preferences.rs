@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use crate::error::Result;
 use accioshot::config::{self, Config};
 use serde::Serialize;
 
@@ -12,28 +13,28 @@ pub struct Preferences {
 }
 
 #[tauri::command]
-pub fn load_preferences() -> Result<Preferences, String> {
+pub fn load_preferences() -> Result<Preferences> {
     Ok(Preferences {
-        config: Config::load().map_err(|error| error.to_string())?,
+        config: Config::load()?,
         uploaders: config::uploader_names(),
         has_hotkey: cfg!(target_os = "macos"),
     })
 }
 
 #[tauri::command]
-pub fn save_preferences(config: Config) -> Result<(), String> {
-    config.save().map_err(|error| error.to_string())
+pub fn save_preferences(config: Config) -> Result<()> {
+    Ok(config.save()?)
 }
 
 #[tauri::command]
-pub fn open_config() -> Result<(), String> {
-    let path = config::path().map_err(|error| error.to_string())?;
+pub fn open_config() -> Result<()> {
+    let path = config::path()?;
     if !path.exists() {
         // The desktop cannot open a file that is not there yet.
         if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir).map_err(|error| error.to_string())?;
+            std::fs::create_dir_all(dir)?;
         }
-        std::fs::write(&path, "").map_err(|error| error.to_string())?;
+        std::fs::write(&path, "")?;
     }
-    accioshot::open(path.as_os_str()).map_err(|error| error.to_string())
+    Ok(accioshot::open(path.as_os_str())?)
 }

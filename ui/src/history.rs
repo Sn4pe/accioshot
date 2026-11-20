@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use crate::error::Result;
 use std::fs::{DirBuilder, Metadata};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{Cursor, Write};
@@ -32,15 +33,10 @@ impl Library {
         }
     }
 
-    fn check(&self, entry: &Entry) -> Result<(), String> {
-        match self
-            .entries
-            .lock()
-            .map_err(|e| e.to_string())?
-            .contains(entry)
-        {
+    fn check(&self, entry: &Entry) -> Result<()> {
+        match self.entries.lock()?.contains(entry) {
             true => Ok(()),
-            false => Err("this capture is no longer in the history".to_string()),
+            false => Err("this capture is no longer in the history".into()),
         }
     }
 
@@ -103,23 +99,20 @@ pub enum Part {
 
 async fn blocking<T: Send + 'static>(
     app: AppHandle,
-    run: impl FnOnce(&Library) -> Result<T, String> + Send + 'static,
-) -> Result<T, String> {
-    tauri::async_runtime::spawn_blocking(move || run(&app.state::<Library>()))
-        .await
-        .map_err(|error| error.to_string())?
+    run: impl FnOnce(&Library) -> Result<T> + Send + 'static,
+) -> Result<T> {
+    tauri::async_runtime::spawn_blocking(move || run(&app.state::<Library>())).await?
 }
 
 #[tauri::command]
-pub async fn history_items(app: AppHandle) -> Result<Items, String> {
+pub async fn history_items(app: AppHandle) -> Result<Items> {
     blocking(app, items).await
 }
 
-fn items(library: &Library) -> Result<Items, String> {
+fn items(library: &Library) -> Result<Items> {
     let entries = history::recent(library.config.max_items);
     let items = visible(entries, library.config.filter_missing_files);
-    *library.entries.lock().map_err(|e| e.to_string())? =
-        items.iter().map(|item| item.entry.clone()).collect();
+    *library.entries.lock()? = items.iter().map(|item| item.entry.clone()).collect();
     Ok(Items {
         items,
         thumbnail_width: library.config.thumbnail_width,
@@ -139,23 +132,23 @@ fn visible(entries: Vec<Entry>, filter_missing: bool) -> Vec<Item> {
 }
 
 #[tauri::command]
-pub async fn thumbnail(entry: Entry, app: AppHandle) -> Result<Response, String> {
+pub async fn thumbnail(entry: Entry, app: AppHandle) -> Result<Response> {
     blocking(app, move |library| thumbnail_of(&entry, library)).await
 }
 
-fn thumbnail_of(entry: &Entry, library: &Library) -> Result<Response, String> {
+fn thumbnail_of(entry: &Entry, library: &Library) -> Result<Response> {
     library.check(entry)?;
     let path = entry.path.as_deref().ok_or("this capture has no file")?;
     let size = (
         library.config.thumbnail_width,
         library.config.thumbnail_height,
     );
-    cached_thumbnail(path, size)
+    Ok(cached_thumbnail(path, size)
         .map(Response::new)
-        .map_err(|error| format!("cannot read {}: {error}", path.display()))
+        .map_err(|error| format!("cannot read {}: {error}", path.display()))?)
 }
 
-fn cached_thumbnail(path: &Path, size: (u32, u32)) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+fn cached_thumbnail(path: &Path, size: (u32, u32)) -> accioshot::Result<Vec<u8>> {
     let file = std::fs::metadata(path)?;
     let cached = thumbnail_path(path, &file, size);
     if let Some(bytes) = cached
@@ -173,7 +166,7 @@ fn cached_thumbnail(path: &Path, size: (u32, u32)) -> Result<Vec<u8>, Box<dyn st
     Ok(bytes)
 }
 
-fn render_thumbnail(path: &Path, size: (u32, u32)) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+fn render_thumbnail(path: &Path, size: (u32, u32)) -> accioshot::Result<Vec<u8>> {
     let mut bytes = Cursor::new(Vec::new());
     image::open(path)?
         .thumbnail(size.0, size.1)
@@ -198,24 +191,24 @@ fn store(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 #[tauri::command]
-pub async fn image(entry: Entry, app: AppHandle) -> Result<Response, String> {
+pub async fn image(entry: Entry, app: AppHandle) -> Result<Response> {
     blocking(app, move |library| image_of(&entry, library)).await
 }
 
-fn image_of(entry: &Entry, library: &Library) -> Result<Response, String> {
+fn image_of(entry: &Entry, library: &Library) -> Result<Response> {
     library.check(entry)?;
     let path = entry.path.as_deref().ok_or("this capture has no file")?;
-    std::fs::read(path)
+    Ok(std::fs::read(path)
         .map(Response::new)
-        .map_err(|error| format!("cannot read {}: {error}", path.display()))
+        .map_err(|error| format!("cannot read {}: {error}", path.display()))?)
 }
 
 #[tauri::command]
-pub async fn copy_entry(entry: Entry, part: Part, app: AppHandle) -> Result<(), String> {
+pub async fn copy_entry(entry: Entry, part: Part, app: AppHandle) -> Result<()> {
     blocking(app, move |library| copy_part(&entry, part, library)).await
 }
 
-fn copy_part(entry: &Entry, part: Part, library: &Library) -> Result<(), String> {
+fn copy_part(entry: &Entry, part: Part, library: &Library) -> Result<()> {
     library.check(entry)?;
     match part {
         Part::Image => {
@@ -227,12 +220,12 @@ fn copy_part(entry: &Entry, part: Part, library: &Library) -> Result<(), String>
             copy(&[], &path.to_string_lossy())
         }
         Part::Url => copy(&[], entry.url.as_deref().ok_or("this capture has no URL")?),
-        Part::DeletionUrl | Part::File | Part::Folder => Err("nothing to copy".to_string()),
+        Part::DeletionUrl | Part::File | Part::Folder => Err("nothing to copy".into()),
     }
 }
 
 /// Through accioshot: on Wayland only a process without threads can keep serving the clipboard.
-fn copy(args: &[&std::ffi::OsStr], text: &str) -> Result<(), String> {
+fn copy(args: &[&std::ffi::OsStr], text: &str) -> Result<()> {
     let mut child = Command::new(accioshot::sibling_binary("accioshot"))
         .arg("copy")
         .args(args)
@@ -242,63 +235,53 @@ fn copy(args: &[&std::ffi::OsStr], text: &str) -> Result<(), String> {
         .spawn()
         .map_err(|error| format!("cannot run accioshot: {error}"))?;
     if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(text.as_bytes())
-            .map_err(|error| error.to_string())?;
+        stdin.write_all(text.as_bytes())?;
     }
-    let output = child
-        .wait_with_output()
-        .map_err(|error| error.to_string())?;
+    let output = child.wait_with_output()?;
     match output.status.success() {
         true => Ok(()),
-        false => Err(String::from_utf8_lossy(&output.stderr).trim().to_string()),
+        false => Err(String::from_utf8_lossy(&output.stderr).trim().into()),
     }
 }
 
 #[tauri::command]
-pub async fn edit_entry(entry: Entry, app: AppHandle) -> Result<(), String> {
+pub async fn edit_entry(entry: Entry, app: AppHandle) -> Result<()> {
     blocking(app, move |library| edit(&entry, library)).await
 }
 
-fn edit(entry: &Entry, library: &Library) -> Result<(), String> {
+fn edit(entry: &Entry, library: &Library) -> Result<()> {
     library.check(entry)?;
     let path = entry
         .path
         .as_deref()
         .filter(|path| path.exists())
         .ok_or("this capture has no file")?;
-    let command = Config::load()
-        .map_err(|error| error.to_string())?
-        .editor
-        .command;
+    let command = Config::load()?.editor.command;
     edit_file(path, &command, || library.check(entry).is_ok())
 }
 
-fn edit_file(path: &Path, command: &str, still_listed: impl Fn() -> bool) -> Result<(), String> {
+fn edit_file(path: &Path, command: &str, still_listed: impl Fn() -> bool) -> Result<()> {
     let png =
         std::fs::read(path).map_err(|error| format!("cannot read {}: {error}", path.display()))?;
-    let Some(edited) = editor::edit(command, &png).map_err(|error| error.to_string())? else {
+    let Some(edited) = editor::edit(command, &png)? else {
         return Ok(());
     };
     if !still_listed() || !path.exists() {
-        return Err("the capture was removed while it was being edited".to_string());
+        return Err("the capture was removed while it was being edited".into());
     }
     if edited.copy_only {
-        let dir = PrivateDir::new("accioshot-copy").map_err(|error| error.to_string())?;
+        let dir = PrivateDir::new("accioshot-copy")?;
         let file = dir.path().join("capture.png");
-        std::fs::write(&file, &edited.png).map_err(|error| error.to_string())?;
+        std::fs::write(&file, &edited.png)?;
         return copy(&[std::ffi::OsStr::new("--image"), file.as_os_str()], "");
     }
-    let mode = std::fs::metadata(path)
-        .map_err(|error| error.to_string())?
-        .permissions()
-        .mode();
-    write_atomically(path, &edited.png, mode)
-        .map_err(|error| format!("cannot save {}: {error}", path.display()))
+    let mode = std::fs::metadata(path)?.permissions().mode();
+    Ok(write_atomically(path, &edited.png, mode)
+        .map_err(|error| format!("cannot save {}: {error}", path.display()))?)
 }
 
 #[tauri::command]
-pub fn open_entry(entry: Entry, part: Part, library: State<Library>) -> Result<(), String> {
+pub fn open_entry(entry: Entry, part: Part, library: State<Library>) -> Result<()> {
     library.check(&entry)?;
     match part {
         Part::File => open(
@@ -314,21 +297,21 @@ pub fn open_entry(entry: Entry, part: Part, library: State<Library>) -> Result<(
         }
         Part::Url => open_url(entry.url.as_deref()),
         Part::DeletionUrl => open_url(entry.deletion_url.as_deref()),
-        Part::Image | Part::Path => Err("nothing to open".to_string()),
+        Part::Image | Part::Path => Err("nothing to open".into()),
     }
 }
 
 /// These came from a remote server's response, the desktop must not run anything else.
-fn open_url(url: Option<&str>) -> Result<(), String> {
+fn open_url(url: Option<&str>) -> Result<()> {
     let url = url.ok_or("this capture has no such link")?;
     if !accioshot::is_web_url(url) {
-        return Err(format!("not a web address: {url}"));
+        return Err(format!("not a web address: {url}").into());
     }
     open(url.as_ref())
 }
 
-fn open(target: &std::ffi::OsStr) -> Result<(), String> {
-    accioshot::open(target).map_err(|error| error.to_string())
+fn open(target: &std::ffi::OsStr) -> Result<()> {
+    Ok(accioshot::open(target)?)
 }
 
 /// The file goes first: if that fails the entry stays, so the delete can be tried again.
@@ -337,7 +320,7 @@ pub fn delete_entries(
     entries: Vec<Entry>,
     delete_file: bool,
     library: State<Library>,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>> {
     let (entries, mut failures) = library.split_known(entries);
     let size = (
         library.config.thumbnail_width,
@@ -364,13 +347,9 @@ pub fn delete_entries(
         removable.push(entry);
     }
     if !removable.is_empty() {
-        history::remove(&removable).map_err(|error| error.to_string())?;
+        history::remove(&removable)?;
     }
-    library
-        .entries
-        .lock()
-        .map_err(|e| e.to_string())?
-        .retain(|e| !removable.contains(e));
+    library.entries.lock()?.retain(|e| !removable.contains(e));
     Ok(failures)
 }
 
