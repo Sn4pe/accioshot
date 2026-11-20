@@ -39,7 +39,17 @@
     viewRect,
   } from './lib/render'
   import { cursorFor, type EditorSettings as Settings, type Style } from './lib/tools'
-  import { centered, clampOrigin, fitScale, stepScale, zoomAt } from './lib/viewport'
+  import {
+    centered,
+    clampOrigin,
+    fitScale,
+    nextZoom,
+    offsetIn,
+    stepScale,
+    wheelDelta,
+    wheelZoom,
+    zoomAt,
+  } from './lib/viewport'
 
   type Editing = { id: number | null; at: Point; text: string; color: string; size: number; font: string }
   type Gesture =
@@ -80,11 +90,6 @@
   const NUDGE_FAR = 10
   const DUPLICATE_OFFSET = 10
   const MIN_ZOOM = 0.05
-  // Steps in and out again can miss the fit by a rounding error.
-  const FIT_TOLERANCE = 0.001
-  // Wheel pixels per zoom step, a mouse notch is around 100.
-  const WHEEL_STEP = 100
-  const WHEEL_LINE = 33
   const STAGE_MARGIN = 24
   const LOAD_TIMEOUT_MS = 10_000
   const CLOSE_HINT = 'Close this window, the original capture is kept in the captures folder.'
@@ -113,7 +118,6 @@
 
   let gesture: Gesture | null = null
   let canvas: HTMLCanvasElement | undefined = $state()
-  let stage: HTMLElement | undefined = $state()
   let stageWidth = $state(0)
   let stageHeight = $state(0)
   // The document in image pixels. Blur and Pixelate read back from it, so it is never scaled.
@@ -199,21 +203,16 @@
     cursor = cursorFor(tool)
   }
 
-  function screenAt(event: MouseEvent): Point {
-    const rect = canvas!.getBoundingClientRect()
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top }
-  }
+  type StageEvent = MouseEvent & { currentTarget: Element }
 
-  function pointAt(event: MouseEvent): Point {
-    const screen = screenAt(event)
+  function pointAt(event: StageEvent): Point {
+    const screen = offsetIn(event.currentTarget, event)
     return { x: screen.x / scale + at.x, y: screen.y / scale + at.y }
   }
 
   function setZoom(next: number | null, screen: Point = { x: stageWidth / 2, y: stageHeight / 2 }) {
-    const limited = next === null ? null : Math.min(Math.max(next, MIN_ZOOM), settings?.max_zoom ?? 1)
-    // Back to fitting when a step reaches or crosses the fit, from either side.
-    const crossed = limited !== null && (zoom === null ? limited <= fit : (limited - fit) * (scale - fit) <= 0)
-    if (limited === null || crossed || Math.abs(limited - fit) <= fit * FIT_TOLERANCE) {
+    const limited = nextZoom(zoom, next, fit, zoom === null ? fit : MIN_ZOOM, settings?.max_zoom ?? 1)
+    if (limited === null) {
       zoom = null
       origin = null
       return
@@ -222,19 +221,15 @@
     zoom = limited
   }
 
-  function onWheel(event: WheelEvent) {
-    if (!image) return
+  function onWheel(event: WheelEvent & StageEvent) {
+    if (!image || !settings) return
     event.preventDefault()
-    const line = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? WHEEL_LINE : 1
     if (event.ctrlKey) {
-      setZoom(scale * settings!.zoom_step ** ((-event.deltaY * line) / WHEEL_STEP), screenAt(event))
+      setZoom(scale * wheelZoom(event, settings.zoom_step), offsetIn(event.currentTarget, event))
       return
     }
-    // Shift turns a plain wheel sideways, a touchpad already sends deltaX.
-    const sideways = event.shiftKey && !event.deltaX
-    const dx = (sideways ? event.deltaY : event.deltaX) * line
-    const dy = (sideways ? 0 : event.deltaY) * line
-    origin = { x: at.x + dx / scale, y: at.y + dy / scale }
+    const delta = wheelDelta(event)
+    origin = { x: at.x + delta.x / scale, y: at.y + delta.y / scale }
   }
 
   function nudge(move: Move, far: boolean) {
@@ -312,14 +307,14 @@
     selectedIds = [text.id]
   }
 
-  function onPointerDown(event: PointerEvent) {
+  function onPointerDown(event: PointerEvent & StageEvent) {
     // A second button mid-drag would leave the first gesture's draft or preview behind.
     if (!canvas || !image || gesture) return
     nudged = null
     if (event.button === 1 || (event.button === 0 && panKey)) {
       // Also keeps the focus where it is, so a text being edited stays open.
       event.preventDefault()
-      ;(event.currentTarget as Element).setPointerCapture(event.pointerId)
+      event.currentTarget.setPointerCapture(event.pointerId)
       gesture = { kind: 'pan', start: { x: event.clientX, y: event.clientY }, origin: at }
       cursor = 'grabbing'
       return
@@ -332,7 +327,7 @@
     }
     const p = pointAt(event)
     const tolerance = 6 / scale
-    ;(event.currentTarget as Element).setPointerCapture(event.pointerId)
+    event.currentTarget.setPointerCapture(event.pointerId)
 
     // Text and Step tools place new ones, so their handles only answer to Select. Shift toggles instead.
     if (selected && !event.shiftKey && (tool === 'Select' || (tool !== 'Crop' && isShape(selected)))) {
@@ -386,7 +381,7 @@
     }
   }
 
-  function onPointerMove(event: PointerEvent) {
+  function onPointerMove(event: PointerEvent & StageEvent) {
     if (gesture?.kind === 'pan') {
       origin = {
         x: gesture.origin.x - (event.clientX - gesture.start.x) / scale,
@@ -496,9 +491,9 @@
     else cursor = hitTop(doc.annotations, p, tolerance) ? 'move' : 'default'
   }
 
-  function onDoubleClick(event: MouseEvent) {
+  function onDoubleClick(event: StageEvent) {
     if (tool !== 'Select' || !canvas) return
-    const target = hitTop(doc.annotations, pointAt(event as PointerEvent), 6 / scale)
+    const target = hitTop(doc.annotations, pointAt(event), 6 / scale)
     if (target?.kind === 'Text') startText(target.at, target)
   }
 
@@ -741,13 +736,6 @@
     return () => query.removeEventListener('change', update)
   })
 
-  // Svelte's onwheel may be passive, and the page must not scroll or zoom itself.
-  $effect(() => {
-    if (!stage) return
-    stage.addEventListener('wheel', onWheel, { passive: false })
-    return () => stage!.removeEventListener('wheel', onWheel)
-  })
-
   onMount(() => {
     const unlisten = getCurrentWindow().onCloseRequested((event) => {
       event.preventDefault()
@@ -891,10 +879,10 @@
   </header>
 
   <main
-    bind:this={stage}
     bind:clientWidth={stageWidth}
     bind:clientHeight={stageHeight}
     style:cursor
+    onwheel={onWheel}
     onpointerdown={onPointerDown}
     onpointermove={onPointerMove}
     onpointerup={onPointerUp}

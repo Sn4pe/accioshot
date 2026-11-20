@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest'
-import { centered, clampOrigin, fitScale, stepScale, zoomAt } from './viewport'
+import { centered, clampOrigin, fitScale, nextZoom, stepScale, wheelDelta, wheelZoom, zoomAt } from './viewport'
 
 const view = { x: 0, y: 0, width: 1000, height: 500 }
 const stage = { width: 548, height: 548 }
@@ -33,5 +33,31 @@ describe('viewport', () => {
     expect(stepScale(0.9, 1.25)).toBe(1)
     expect(stepScale(1.1, 0.8)).toBe(1)
     expect(stepScale(2, 1.25)).toBe(2.5)
+  })
+
+  it('goes back to fitting when a zoom reaches or crosses the fit', () => {
+    expect(nextZoom(2, 0.4, 0.5, 0.05, 8)).toBeNull()
+    expect(nextZoom(0.25, 0.6, 0.5, 0.05, 8)).toBeNull()
+    expect(nextZoom(2, 0.5004, 0.5, 0.05, 8)).toBeNull()
+    expect(nextZoom(2, null, 0.5, 0.05, 8)).toBeNull()
+  })
+
+  it('zooms within its limits and away from the fit', () => {
+    expect(nextZoom(null, 2, 0.5, 0.05, 8)).toBe(2)
+    expect(nextZoom(null, 0.25, 0.5, 0.05, 8)).toBe(0.25)
+    expect(nextZoom(null, 0.25, 0.5, 0.5, 8)).toBeNull()
+    expect(nextZoom(2, 40, 0.5, 0.05, 8)).toBe(8)
+  })
+
+  it('turns a wheel into a pan in pixels', () => {
+    const wheel = { deltaMode: 0, deltaX: 0, deltaY: 10, shiftKey: false }
+    expect(wheelDelta(wheel)).toEqual({ x: 0, y: 10 })
+    expect(wheelDelta({ ...wheel, shiftKey: true })).toEqual({ x: 10, y: 0 })
+    expect(wheelDelta({ ...wheel, deltaMode: 1, deltaY: 3 })).toEqual({ x: 0, y: 99 })
+  })
+
+  it('zooms one step per mouse notch', () => {
+    expect(wheelZoom({ deltaMode: 0, deltaY: -100 }, 1.25)).toBe(1.25)
+    expect(wheelZoom({ deltaMode: 1, deltaY: 3 }, 2)).toBeCloseTo(2 ** -0.99)
   })
 })

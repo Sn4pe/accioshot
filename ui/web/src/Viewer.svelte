@@ -5,7 +5,17 @@
   import { eventCombo, keymap } from './lib/keys'
   import { entryKey, fileName, title, type Item } from './lib/library'
   import type { Point } from './lib/model'
-  import { centered, clampOrigin, fitScale, stepScale, zoomAt } from './lib/viewport'
+  import {
+    centered,
+    clampOrigin,
+    fitScale,
+    nextZoom,
+    offsetIn,
+    stepScale,
+    wheelDelta,
+    wheelZoom,
+    zoomAt,
+  } from './lib/viewport'
 
   let {
     item,
@@ -18,8 +28,6 @@
 
   const MAX_ZOOM = 16
   const ZOOM_STEP = 1.25
-  const WHEEL_STEP = 100
-  const WHEEL_LINE = 33
   const DRAG_SLOP = 3
   const KEYS = keymap({})
 
@@ -47,16 +55,10 @@
     return count >= 1024 * 1024 ? `${(count / 1024 / 1024).toFixed(1)} MB` : `${Math.round(count / 1024)} KB`
   }
 
-  function screenAt(event: MouseEvent): Point {
-    const rect = stage!.getBoundingClientRect()
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top }
-  }
-
   function setZoom(next: number | null, screen: Point = { x: stageWidth / 2, y: stageHeight / 2 }) {
     const least = preview ? fit : fit / 4
-    const limited = next === null ? null : Math.min(Math.max(next, least), MAX_ZOOM)
-    const crossed = limited !== null && zoom !== null && (limited - fit) * (zoom - fit) < 0
-    if (limited === null || crossed || Math.abs(limited - fit) <= fit * 0.001) {
+    const limited = nextZoom(zoom, next, fit, least, MAX_ZOOM)
+    if (limited === null) {
       zoom = null
       origin = null
       return
@@ -65,24 +67,21 @@
     zoom = limited
   }
 
-  function onWheel(event: WheelEvent) {
+  function onWheel(event: WheelEvent & { currentTarget: Element }) {
     if (!natural.width) return
     event.preventDefault()
-    const line = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? WHEEL_LINE : 1
     if (event.ctrlKey || event.metaKey) {
-      setZoom(scale * ZOOM_STEP ** ((-event.deltaY * line) / WHEEL_STEP), screenAt(event))
+      setZoom(scale * wheelZoom(event, ZOOM_STEP), offsetIn(event.currentTarget, event))
       return
     }
-    const sideways = event.shiftKey && !event.deltaX
-    const dx = (sideways ? event.deltaY : event.deltaX) * line
-    const dy = (sideways ? 0 : event.deltaY) * line
-    origin = { x: at.x + dx / scale, y: at.y + dy / scale }
+    const delta = wheelDelta(event)
+    origin = { x: at.x + delta.x / scale, y: at.y + delta.y / scale }
   }
 
-  function onPointerDown(event: PointerEvent) {
+  function onPointerDown(event: PointerEvent & { currentTarget: Element }) {
     if (event.button !== 0) return
     event.stopPropagation()
-    ;(event.currentTarget as Element).setPointerCapture(event.pointerId)
+    event.currentTarget.setPointerCapture(event.pointerId)
     panning = { start: { x: event.clientX, y: event.clientY }, origin: at, moved: false }
   }
 
@@ -99,7 +98,7 @@
     if (!panning) return
     const clicked = !panning.moved
     panning = null
-    if (clicked) setZoom(zoom === null && fit < 1 ? 1 : null, screenAt(event))
+    if (clicked) setZoom(zoom === null && fit < 1 ? 1 : null, stage && offsetIn(stage, event))
   }
 
   function onKeyDown(event: KeyboardEvent) {
@@ -110,13 +109,6 @@
     else return
     event.preventDefault()
   }
-
-  $effect(() => {
-    if (!stage) return
-    const target = stage
-    target.addEventListener('wheel', onWheel, { passive: false })
-    return () => target.removeEventListener('wheel', onWheel)
-  })
 
   $effect(() => {
     void key
@@ -158,7 +150,7 @@
   tabindex="-1"
   onclick={onclose}
 >
-  <div class="stage" bind:this={stage} bind:clientWidth={stageWidth} bind:clientHeight={stageHeight}>
+  <div class="stage" bind:this={stage} onwheel={onWheel} bind:clientWidth={stageWidth} bind:clientHeight={stageHeight}>
     {#if src}
       <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
       <img

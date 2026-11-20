@@ -42,3 +42,36 @@ export function stepScale(scale: number, factor: number): number {
   const next = scale * factor
   return (scale < 1 && next > 1) || (scale > 1 && next < 1) ? 1 : next
 }
+
+const FIT_TOLERANCE = 0.001
+const WHEEL_STEP = 100
+const WHEEL_LINE = 33
+const DOM_DELTA_LINE = 1
+
+export function nextZoom(zoom: number | null, next: number | null, fit: number, min: number, max: number) {
+  if (next === null) return null
+  const limited = Math.min(Math.max(next, min), max)
+  const crossed = (limited - fit) * ((zoom ?? fit) - fit) < 0
+  return crossed || Math.abs(limited - fit) <= fit * FIT_TOLERANCE ? null : limited
+}
+
+type Wheel = { deltaMode: number; deltaX: number; deltaY: number; shiftKey: boolean }
+
+function lineHeight(event: Pick<Wheel, 'deltaMode'>) {
+  return event.deltaMode === DOM_DELTA_LINE ? WHEEL_LINE : 1
+}
+
+export function wheelDelta(event: Wheel): Point {
+  const line = lineHeight(event)
+  const sideways = event.shiftKey && !event.deltaX
+  return { x: (sideways ? event.deltaY : event.deltaX) * line, y: (sideways ? 0 : event.deltaY) * line }
+}
+
+export function wheelZoom(event: Pick<Wheel, 'deltaMode' | 'deltaY'>, step: number): number {
+  return step ** ((-event.deltaY * lineHeight(event)) / WHEEL_STEP)
+}
+
+export function offsetIn(element: Element, event: { clientX: number; clientY: number }): Point {
+  const rect = element.getBoundingClientRect()
+  return { x: event.clientX - rect.left, y: event.clientY - rect.top }
+}
