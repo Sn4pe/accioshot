@@ -179,12 +179,12 @@ fn dim(pixels: &[u8]) -> Vec<u8> {
 }
 
 fn rect_between(a: (f64, f64), b: (f64, f64)) -> Area {
-    Area {
-        x: a.0.min(b.0),
-        y: a.1.min(b.1),
-        width: (a.0 - b.0).abs(),
-        height: (a.1 - b.1).abs(),
-    }
+    Area::new(
+        a.0.min(b.0),
+        a.1.min(b.1),
+        (a.0 - b.0).abs(),
+        (a.1 - b.1).abs(),
+    )
 }
 
 fn window_at(windows: &[Area], (x, y): (f64, f64)) -> Option<Area> {
@@ -334,18 +334,9 @@ fn outline(canvas: &mut [u8], width: u32, [left, top, right, bottom]: [u32; 4]) 
 mod tests {
     use super::*;
 
-    fn area(x: f64, y: f64, width: f64, height: f64) -> Area {
-        Area {
-            x,
-            y,
-            width,
-            height,
-        }
-    }
-
     #[test]
     fn dragging_in_any_direction_gives_the_same_rect() {
-        let expected = area(10.0, 20.0, 30.0, 40.0);
+        let expected = Area::new(10.0, 20.0, 30.0, 40.0);
         assert_eq!(rect_between((10.0, 20.0), (40.0, 60.0)), expected);
         assert_eq!(rect_between((40.0, 60.0), (10.0, 20.0)), expected);
         assert_eq!(rect_between((40.0, 20.0), (10.0, 60.0)), expected);
@@ -382,7 +373,7 @@ mod tests {
     fn magnifier_shows_the_capture_pixel_under_the_cursor() {
         let mut image = RgbaImage::new(40, 40);
         image.put_pixel(5, 6, image::Rgba([10, 20, 30, 255]));
-        let layout = [area(0.0, 0.0, 20.0, 20.0)];
+        let layout = [Area::new(0.0, 0.0, 20.0, 20.0)];
         let magnifier = Magnifier::new(50, 3);
         let mut canvas = vec![0u8; 400 * 400 * 4];
         let view = (layout[0], 400, 400);
@@ -396,7 +387,10 @@ mod tests {
 
     #[test]
     fn topmost_window_wins() {
-        let windows = [area(0.0, 0.0, 100.0, 100.0), area(50.0, 50.0, 100.0, 100.0)];
+        let windows = [
+            Area::new(0.0, 0.0, 100.0, 100.0),
+            Area::new(50.0, 50.0, 100.0, 100.0),
+        ];
         assert_eq!(window_at(&windows, (60.0, 60.0)), Some(windows[0]));
         assert_eq!(window_at(&windows, (120.0, 120.0)), Some(windows[1]));
         assert_eq!(window_at(&windows, (150.0, 150.0)), None);
@@ -404,10 +398,10 @@ mod tests {
 
     #[test]
     fn drag_beats_the_window_and_a_small_drag_is_a_click() {
-        let windows = [area(0.0, 0.0, 100.0, 100.0)];
-        let drag = area(10.0, 10.0, 20.0, 20.0);
+        let windows = [Area::new(0.0, 0.0, 100.0, 100.0)];
+        let drag = Area::new(10.0, 10.0, 20.0, 20.0);
         assert_eq!(released(Some(drag), &windows, (30.0, 30.0)), Some(drag));
-        let wobble = area(10.0, 10.0, 2.0, 1.0);
+        let wobble = Area::new(10.0, 10.0, 2.0, 1.0);
         assert_eq!(
             released(Some(wobble), &windows, (12.0, 11.0)),
             Some(windows[0])
@@ -417,9 +411,9 @@ mod tests {
 
     #[test]
     fn selection_across_monitors_is_clamped_to_each() {
-        let selection = area(1900.0, 10.0, 40.0, 20.0);
-        let left = area(0.0, 0.0, 1920.0, 1080.0);
-        let right = area(1920.0, 0.0, 1920.0, 1080.0);
+        let selection = Area::new(1900.0, 10.0, 40.0, 20.0);
+        let left = Area::new(0.0, 0.0, 1920.0, 1080.0);
+        let right = Area::new(1920.0, 0.0, 1920.0, 1080.0);
         assert_eq!(
             visible_part(selection, left, 1920, 1080),
             Some([1900, 10, 1920, 30])
@@ -432,8 +426,8 @@ mod tests {
 
     #[test]
     fn selection_on_another_monitor_is_not_visible() {
-        let selection = area(2000.0, 10.0, 40.0, 20.0);
-        let left = area(0.0, 0.0, 1920.0, 1080.0);
+        let selection = Area::new(2000.0, 10.0, 40.0, 20.0);
+        let left = Area::new(0.0, 0.0, 1920.0, 1080.0);
         assert_eq!(visible_part(selection, left, 1920, 1080), None);
     }
 
@@ -441,7 +435,7 @@ mod tests {
     fn screen_renders_its_part_of_the_capture() {
         let mut image = RgbaImage::new(4, 1);
         image.put_pixel(2, 0, image::Rgba([10, 20, 30, 255]));
-        let layout = [area(0.0, 0.0, 2.0, 1.0), area(2.0, 0.0, 2.0, 1.0)];
+        let layout = [Area::new(0.0, 0.0, 2.0, 1.0), Area::new(2.0, 0.0, 2.0, 1.0)];
         let pixels = render_screen(&image, &layout, layout[1], 2, 1);
         assert_eq!(pixels[..4], [30, 20, 10, 0xFF]);
     }

@@ -64,12 +64,12 @@ struct Screen {
 }
 
 fn scaled(area: Area, scale: f64) -> Area {
-    Area {
-        x: area.x * scale,
-        y: area.y * scale,
-        width: area.width * scale,
-        height: area.height * scale,
-    }
+    Area::new(
+        area.x * scale,
+        area.y * scale,
+        area.width * scale,
+        area.height * scale,
+    )
 }
 
 /// Top left logical coordinates to AppKit's bottom left ones.

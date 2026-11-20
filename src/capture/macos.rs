@@ -59,12 +59,7 @@ pub async fn monitor() -> Result<Vec<u8>> {
 pub fn layout() -> Result<Vec<Area>> {
     Ok(screens()?
         .into_iter()
-        .map(|[x, y, width, height]| Area {
-            x,
-            y,
-            width,
-            height,
-        })
+        .map(|[x, y, width, height]| Area::new(x, y, width, height))
         .collect())
 }
 
@@ -83,12 +78,12 @@ pub fn visible_windows() -> Result<Vec<Area>> {
                     .downcast::<CFNumber>()?
                     .to_f64()
             };
-            Some(Area {
-                x: field("X")?,
-                y: field("Y")?,
-                width: field("Width")?,
-                height: field("Height")?,
-            })
+            Some(Area::new(
+                field("X")?,
+                field("Y")?,
+                field("Width")?,
+                field("Height")?,
+            ))
         })
         .collect())
 }

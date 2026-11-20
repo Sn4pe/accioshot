@@ -198,11 +198,8 @@ pub struct Area {
     pub height: f64,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn area(x: f64, y: f64, width: f64, height: f64) -> Area {
+impl Area {
+    pub const fn new(x: f64, y: f64, width: f64, height: f64) -> Area {
         Area {
             x,
             y,
@@ -210,6 +207,22 @@ mod tests {
             height,
         }
     }
+}
+
+impl From<([i32; 2], [i32; 2])> for Area {
+    fn from(([x, y], [width, height]): ([i32; 2], [i32; 2])) -> Area {
+        Area::new(
+            f64::from(x),
+            f64::from(y),
+            f64::from(width),
+            f64::from(height),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
 
     #[test]
     fn last_region_survives_a_round_trip() {
@@ -249,8 +262,8 @@ mod tests {
     #[test]
     fn second_monitor_is_offset() {
         let layout = [
-            area(0.0, 0.0, 1920.0, 1080.0),
-            area(1920.0, 0.0, 1920.0, 1080.0),
+            Area::new(0.0, 0.0, 1920.0, 1080.0),
+            Area::new(1920.0, 0.0, 1920.0, 1080.0),
         ];
         let rect = pixel_rect(layout[1], &layout, 3840, 1080).unwrap();
         assert_eq!(rect, [1920, 0, 1920, 1080]);
@@ -259,30 +272,31 @@ mod tests {
     #[test]
     fn negative_origin_is_normalized() {
         let layout = [
-            area(-1920.0, -100.0, 1920.0, 1080.0),
-            area(0.0, 0.0, 1920.0, 1080.0),
+            Area::new(-1920.0, -100.0, 1920.0, 1080.0),
+            Area::new(0.0, 0.0, 1920.0, 1080.0),
         ];
-        let rect = pixel_rect(area(10.0, 20.0, 100.0, 50.0), &layout, 3840, 1180).unwrap();
+        let rect = pixel_rect(Area::new(10.0, 20.0, 100.0, 50.0), &layout, 3840, 1180).unwrap();
         assert_eq!(rect, [1930, 120, 100, 50]);
     }
 
     #[test]
     fn scaled_monitor_uses_image_factor() {
-        let layout = [area(0.0, 0.0, 1920.0, 1080.0)];
-        let rect = pixel_rect(area(100.0, 100.0, 200.0, 100.0), &layout, 3840, 2160).unwrap();
+        let layout = [Area::new(0.0, 0.0, 1920.0, 1080.0)];
+        let rect = pixel_rect(Area::new(100.0, 100.0, 200.0, 100.0), &layout, 3840, 2160).unwrap();
         assert_eq!(rect, [200, 200, 400, 200]);
     }
 
     #[test]
     fn window_past_the_edge_is_clamped() {
-        let layout = [area(0.0, 0.0, 1920.0, 1080.0)];
-        let rect = pixel_rect(area(1900.0, 1000.0, 100.0, 200.0), &layout, 1920, 1080).unwrap();
+        let layout = [Area::new(0.0, 0.0, 1920.0, 1080.0)];
+        let rect =
+            pixel_rect(Area::new(1900.0, 1000.0, 100.0, 200.0), &layout, 1920, 1080).unwrap();
         assert_eq!(rect, [1900, 1000, 20, 80]);
     }
 
     #[test]
     fn area_outside_the_screen_fails() {
-        let layout = [area(0.0, 0.0, 1920.0, 1080.0)];
-        assert!(pixel_rect(area(3000.0, 0.0, 100.0, 100.0), &layout, 1920, 1080).is_err());
+        let layout = [Area::new(0.0, 0.0, 1920.0, 1080.0)];
+        assert!(pixel_rect(Area::new(3000.0, 0.0, 100.0, 100.0), &layout, 1920, 1080).is_err());
     }
 }

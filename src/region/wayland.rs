@@ -91,12 +91,7 @@ pub fn select(
         else {
             return Err("monitor without logical geometry".into());
         };
-        let area = Area {
-            x: f64::from(x),
-            y: f64::from(y),
-            width: f64::from(width),
-            height: f64::from(height),
-        };
+        let area = Area::from(([x, y], [width, height]));
 
         let surface = compositor.create_surface(&qh);
         let layer = layer_shell.create_layer_surface(

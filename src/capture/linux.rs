@@ -90,12 +90,12 @@ impl Monitor {
             0 => (self.width, self.height),
             _ => (self.height, self.width),
         };
-        Area {
-            x: f64::from(self.x),
-            y: f64::from(self.y),
-            width: f64::from(width) / self.scale,
-            height: f64::from(height) / self.scale,
-        }
+        Area::new(
+            f64::from(self.x),
+            f64::from(self.y),
+            f64::from(width) / self.scale,
+            f64::from(height) / self.scale,
+        )
     }
 }
 
@@ -166,12 +166,7 @@ fn stack_windows(mut clients: Vec<Client>, workspaces: &[i32]) -> Vec<Area> {
     clients.sort_by_key(|client| (!client.floating, client.focus_history_id));
     clients
         .iter()
-        .map(|client| Area {
-            x: f64::from(client.at[0]),
-            y: f64::from(client.at[1]),
-            width: f64::from(client.size[0]),
-            height: f64::from(client.size[1]),
-        })
+        .map(|client| Area::from((client.at, client.size)))
         .collect()
 }
 
@@ -185,15 +180,10 @@ fn monitors() -> Result<Vec<Monitor>> {
 
 fn active_window() -> Result<Area> {
     let window: ActiveWindow = hyprctl("activewindow")?;
-    let (Some([x, y]), Some([width, height])) = (window.at, window.size) else {
+    let (Some(at), Some(size)) = (window.at, window.size) else {
         return Err("no active window".into());
     };
-    Ok(Area {
-        x: f64::from(x),
-        y: f64::from(y),
-        width: f64::from(width),
-        height: f64::from(height),
-    })
+    Ok(Area::from((at, size)))
 }
 
 fn hyprctl<T: DeserializeOwned>(command: &str) -> Result<T> {
@@ -220,15 +210,6 @@ mod tests {
             scale,
             transform,
             focused: false,
-        }
-    }
-
-    fn area(x: f64, y: f64, width: f64, height: f64) -> Area {
-        Area {
-            x,
-            y,
-            width,
-            height,
         }
     }
 
@@ -270,6 +251,6 @@ mod tests {
     #[test]
     fn rotated_monitor_swaps_sides() {
         let rotated = monitor(0, 0, 1920, 1080, 1.0, 1);
-        assert_eq!(rotated.area(), area(0.0, 0.0, 1080.0, 1920.0));
+        assert_eq!(rotated.area(), Area::new(0.0, 0.0, 1080.0, 1920.0));
     }
 }
