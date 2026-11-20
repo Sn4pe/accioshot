@@ -42,7 +42,7 @@ mod platform {
                 }
                 let _ = std::env::set_current_dir("/");
                 let _ = prepared.serve();
-                std::process::exit(0);
+                unsafe { libc::_exit(0) }
             }
             _ => Ok(()),
         }
