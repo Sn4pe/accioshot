@@ -180,7 +180,9 @@ fn on_menu(id: &str) {
     if let Some((_, mode)) = MODES.iter().find(|(_, mode)| *mode == id) {
         capture(mode, MENU_CLOSE_DELAY);
     } else if id == QUIT {
-        std::process::exit(0);
+        if let Some(mtm) = MainThreadMarker::new() {
+            NSApplication::sharedApplication(mtm).terminate(None);
+        }
     } else if id == HISTORY || id == SETTINGS {
         if let Some(exe) = EXE.get() {
             spawn_ui(exe, if id == HISTORY { HISTORY } else { SETTINGS });

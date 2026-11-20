@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::path::PathBuf;
+use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 
 use ksni::blocking::TrayMethods;
 use ksni::menu::{MenuItem, StandardItem, SubMenu};
@@ -17,11 +18,13 @@ use crate::history::{self, Entry};
 pub fn run() -> Result<()> {
     let _lock = single_instance()?;
     let config = Config::load()?;
+    let (quit, quitting) = mpsc::channel();
     let tray = Tray {
         recent: history::recent(RECENT_COUNT),
         pictures_dir: config.pictures_dir()?,
         // Asked now: once an update replaces the binary, the kernel reports it as "(deleted)".
         exe: std::env::current_exe()?,
+        quit,
     };
     let handle = tray.spawn()?;
 
@@ -29,7 +32,11 @@ pub fn run() -> Result<()> {
     // second delay in the menu ever matters.
     let mut seen = history_modified();
     loop {
-        std::thread::sleep(HISTORY_POLL);
+        match quitting.recv_timeout(HISTORY_POLL) {
+            Ok(()) => return Ok(()),
+            Err(RecvTimeoutError::Disconnected) => return Err("the tray stopped".into()),
+            Err(RecvTimeoutError::Timeout) => {}
+        }
         let modified = history_modified();
         if modified != seen {
             seen = modified;
@@ -45,6 +52,7 @@ struct Tray {
     recent: Vec<Entry>,
     pictures_dir: PathBuf,
     exe: PathBuf,
+    quit: Sender<()>,
 }
 
 impl ksni::Tray for Tray {
@@ -112,7 +120,9 @@ impl ksni::Tray for Tray {
         menu.push(
             StandardItem {
                 label: "Quit".into(),
-                activate: Box::new(|_: &mut Self| std::process::exit(0)),
+                activate: Box::new(|tray: &mut Self| {
+                    tray.quit.send(()).ok();
+                }),
                 ..Default::default()
             }
             .into(),
