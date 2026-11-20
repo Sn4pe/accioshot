@@ -367,7 +367,10 @@ fn save(dir: &Path, file_name: &str, png: &[u8]) -> Result<PathBuf> {
         };
         match OpenOptions::new().write(true).create_new(true).open(&path) {
             Ok(mut file) => {
-                file.write_all(png)?;
+                if let Err(error) = file.write_all(png) {
+                    fs::remove_file(&path).ok();
+                    return Err(error.into());
+                }
                 return Ok(fs::canonicalize(path)?);
             }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
