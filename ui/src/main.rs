@@ -4,7 +4,6 @@ mod drag;
 mod editor;
 mod history;
 mod preferences;
-mod settings;
 mod theme;
 
 use std::ffi::OsString;
@@ -16,7 +15,6 @@ use std::time::Duration;
 use accioshot::config::Config;
 #[cfg(target_os = "linux")]
 use gtk::prelude::GtkSettingsExt;
-use settings::Settings;
 use tauri::{LogicalSize, Manager, WebviewWindow};
 
 const USAGE: &str = "usage: accioshot-ui edit <input.png> <output.png> | history | settings";
@@ -123,8 +121,8 @@ fn main() -> ExitCode {
     let (title, (width, height), floating) =
         match mode {
             Mode::Edit(paths) => {
-                let settings = match Settings::load() {
-                    Ok(settings) => settings,
+                let settings = match Config::load() {
+                    Ok(config) => config.editor,
                     Err(error) => return fail(error),
                 };
                 let window = (settings.width, settings.height, settings.floating);

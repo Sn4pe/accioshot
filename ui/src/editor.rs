@@ -3,11 +3,10 @@
 use std::path::{Path, PathBuf};
 
 use accioshot::COPY_ONLY_EXTENSION;
+use accioshot::config::EditorConfig;
 use serde_json::Value;
 use tauri::ipc::{InvokeBody, Request, Response};
 use tauri::{AppHandle, State};
-
-use crate::settings::Settings;
 
 pub struct Paths {
     pub input: PathBuf,
@@ -22,7 +21,7 @@ pub fn read_image(paths: State<Paths>) -> Result<Response, String> {
 }
 
 #[tauri::command]
-pub fn settings(settings: State<Settings>) -> Settings {
+pub fn settings(settings: State<EditorConfig>) -> EditorConfig {
     settings.inner().clone()
 }
 

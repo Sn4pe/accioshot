@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use std::collections::HashMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -121,17 +122,67 @@ impl Default for RegionConfig {
     }
 }
 
-/// The built-in editor reads the rest of the [editor] table itself.
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(default)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum Zoom {
+    Scale(f64),
+    Fit(Fit),
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Fit {
+    Fit,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct EditorConfig {
     pub command: String,
+    pub tool: String,
+    pub colors: Vec<String>,
+    pub highlight_color: String,
+    pub stroke_width: f64,
+    pub font_family: String,
+    pub font_size: f64,
+    pub step_size: f64,
+    pub blur_strength: f64,
+    pub pixel_size: f64,
+    pub remember_last: bool,
+    pub initial_zoom: Zoom,
+    pub zoom_step: f64,
+    pub max_zoom: f64,
+    pub floating: bool,
+    pub width: u32,
+    pub height: u32,
+    pub keys: HashMap<String, String>,
 }
 
 impl Default for EditorConfig {
     fn default() -> Self {
         EditorConfig {
             command: BUILTIN_EDITOR.to_string(),
+            tool: "Arrow".to_string(),
+            colors: [
+                "#e5484d", "#f5a524", "#3fa66b", "#3b82c4", "#f4f1ea", "#1b1916",
+            ]
+            .map(str::to_string)
+            .to_vec(),
+            highlight_color: "#ffe066".to_string(),
+            stroke_width: 4.0,
+            font_family: "sans-serif".to_string(),
+            font_size: 28.0,
+            step_size: 32.0,
+            blur_strength: 12.0,
+            pixel_size: 14.0,
+            remember_last: true,
+            initial_zoom: Zoom::Fit(Fit::Fit),
+            zoom_step: 1.25,
+            max_zoom: 16.0,
+            floating: true,
+            width: 1280,
+            height: 800,
+            keys: HashMap::new(),
         }
     }
 }
@@ -239,7 +290,7 @@ fn merge(
                 .ok_or_else(|| format!("{key} must be a table"))?;
             let was = was.and_then(toml::Value::as_table).unwrap_or(&empty);
             merge(table, was, value, default)?;
-        } else if was.or(default.get(key)) != Some(value) {
+        } else if !same(was.or(default.get(key)), value) {
             let mut replacement: toml_edit::Value = value.to_string().parse()?;
             // In place: inserting would replace the key too, and the comment above it lives there.
             match document.get_mut(key) {
@@ -256,6 +307,13 @@ fn merge(
         }
     }
     Ok(())
+}
+
+fn same(was: Option<&toml::Value>, value: &toml::Value) -> bool {
+    match (was, value) {
+        (Some(toml::Value::Integer(was)), toml::Value::Float(value)) => *was as f64 == *value,
+        (was, value) => was == Some(value),
+    }
 }
 
 impl Config {
@@ -298,6 +356,18 @@ impl Config {
         }
         if self.editor.command.trim().is_empty() {
             return Err("the editor command cannot be empty".into());
+        }
+        if self.editor.colors.is_empty() {
+            return Err("[editor] colors cannot be empty".into());
+        }
+        if matches!(self.editor.initial_zoom, Zoom::Scale(scale) if scale <= 0.0) {
+            return Err("[editor] initial_zoom must be \"fit\" or a scale above 0".into());
+        }
+        if self.editor.zoom_step <= 1.0 {
+            return Err("[editor] zoom_step must be above 1".into());
+        }
+        if self.editor.max_zoom < 1.0 {
+            return Err("[editor] max_zoom cannot be below 1".into());
         }
         if self.history.thumbnail_width == 0
             || self.history.thumbnail_height == 0
@@ -376,11 +446,43 @@ mod tests {
         assert!(!config.notifications);
     }
 
+    fn editor(text: &str) -> Result<EditorConfig> {
+        let config: Config = toml::from_str(text)?;
+        config.validate()?;
+        Ok(config.editor)
+    }
+
     #[test]
-    fn editor_table_leaves_builtin_settings_alone() {
-        let config: Config =
-            toml::from_str("[editor]\ncommand = \"satty\"\ntool = \"Arrow\"").unwrap();
-        assert_eq!(config.editor.command, "satty");
+    fn editor_table_overrides_only_what_it_sets() {
+        let text =
+            "[editor]\ncommand = \"satty\"\ntool = \"Blur\"\n[editor.keys]\nsave = \"ctrl+enter\"";
+        let table = editor(text).unwrap();
+        assert_eq!(table.command, "satty");
+        assert_eq!(table.tool, "Blur");
+        assert_eq!(table.keys["save"], "ctrl+enter");
+        assert_eq!(table.font_size, 28.0);
+        assert!(editor("uploader = \"imgur\"").unwrap().floating);
+    }
+
+    #[test]
+    fn editor_typos_are_rejected() {
+        assert!(editor("[editor]\nfont_sizes = 3").is_err());
+    }
+
+    #[test]
+    fn initial_zoom_takes_fit_or_a_scale() {
+        let editor_zoom = |value: &str| editor(&format!("[editor]\ninitial_zoom = {value}"));
+        assert_eq!(editor_zoom("2").unwrap().initial_zoom, Zoom::Scale(2.0));
+        assert!(editor_zoom("\"fit\"").is_ok());
+        assert!(editor_zoom("\"big\"").is_err());
+        assert!(editor_zoom("0").is_err());
+    }
+
+    #[test]
+    fn zoom_limits_and_colors_are_checked() {
+        assert!(editor("[editor]\nzoom_step = 1").is_err());
+        assert!(editor("[editor]\nmax_zoom = 0.5").is_err());
+        assert!(editor("[editor]\ncolors = []").is_err());
     }
 
     #[test]
@@ -408,7 +510,7 @@ mod tests {
 
     #[test]
     fn saving_nothing_keeps_the_file_as_it_was() {
-        let text = "# mine\nsave_dir = \"~/shots\" # here\n\n[editor]\ntool = \"Text\"\ncolors = [\n  \"#fff\", # white\n]\n[region]\nmagnifier = true\n";
+        let text = "# mine\nsave_dir = \"~/shots\" # here\ndelay = 1\n\n[editor]\ntool = \"Text\"\ncolors = [\n  \"#fff\", # white\n]\ninitial_zoom = 2\nfont_size = 20\n[editor.keys]\nsave = \"ctrl+s\"\n[region]\nmagnifier = true\n";
         assert_eq!(save(text, |_| {}), text);
     }
 
