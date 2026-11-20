@@ -1,13 +1,11 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <script lang="ts">
-  import { onMount, tick } from 'svelte'
+  import { onMount } from 'svelte'
   import Frame from './Frame.svelte'
   import { copyEntry, deleteEntries, editEntry, historyItems, openEntry, startDrag, type Part } from './ipc'
   import Viewer from './Viewer.svelte'
   import { eventCombo } from './lib/keys'
-  import { byDay, entryKey, fileName, matches, pick, title, unique, type Entry, type Item } from './lib/library'
-
-  const NOTE_MS = 2500
+  import { byDay, entryKey, matches, pick, title, unique, type Entry, type Item } from './lib/library'
 
   let items = $state.raw<Item[] | null>(null)
   let width = $state(250)
@@ -18,7 +16,6 @@
   let confirming = $state(false)
   let note = $state('')
   let failure = $state('')
-  let noteTimer: ReturnType<typeof setTimeout> | undefined
   let revision = $state(0)
   let viewing = $state<'preview' | 'full' | null>(null)
   let swallowSpace = false
@@ -49,8 +46,6 @@
   function say(text: string) {
     note = text
     failure = ''
-    clearTimeout(noteTimer)
-    noteTimer = setTimeout(() => (note = ''), NOTE_MS)
   }
 
   async function copy(part: Part, done: string) {
@@ -85,7 +80,7 @@
 
   async function drag(item: Item, icon: string) {
     const group = selected.has(entryKey(item.entry)) ? chosen : [item]
-    const paths = group.filter((one) => one.exists).map((one) => one.entry.path!)
+    const paths = group.flatMap((one) => (one.exists && one.entry.path ? [one.entry.path] : []))
     try {
       await startDrag(paths, icon)
     } catch (error) {
@@ -95,6 +90,7 @@
 
   function setSelection(next: Set<string>) {
     selected = next
+    note = ''
     if (next.size !== 1) viewing = null
   }
 
@@ -110,7 +106,6 @@
     setSelection(new Set([entryKey(next.entry)]))
     anchor = entryKey(next.entry)
     confirming = false
-    tick().then(() => document.querySelector('.frame.selected')?.scrollIntoView({ block: 'nearest' }))
   }
 
   async function remove(deleteFile: boolean) {
@@ -205,18 +200,14 @@
     }
   }
 
-  onMount(() => {
-    refresh()
-    // New captures show up without reopening the window.
-    window.addEventListener('focus', refresh)
-    return () => {
-      window.removeEventListener('focus', refresh)
-      clearTimeout(noteTimer)
-    }
-  })
+  onMount(refresh)
 </script>
 
-<svelte:window onkeydown={onKeyDown} onkeyup={(event) => event.key === ' ' && swallowSpace && event.preventDefault()} />
+<svelte:window
+  onfocus={refresh}
+  onkeydown={onKeyDown}
+  onkeyup={(event) => event.key === ' ' && swallowSpace && event.preventDefault()}
+/>
 
 <div class="history">
   <header>
@@ -246,6 +237,7 @@
                 {width}
                 {height}
                 selected={selected.has(entryKey(item.entry))}
+                current={current === item}
                 onselect={(event) => select(item.entry, event)}
                 onopen={() => view(item)}
                 ondrag={(icon) => drag(item, icon)}
@@ -276,7 +268,7 @@
     {@const entry = current.entry}
     <footer>
       <div class="detail">
-        <strong>{entry.path ? fileName(entry.path) : title(entry)}</strong>
+        <strong>{title(entry)}</strong>
         <span class="where">{entry.url ?? entry.path}</span>
       </div>
       <div class="actions">

@@ -9,6 +9,7 @@
     width,
     height,
     selected,
+    current,
     onselect,
     onopen,
     ondrag,
@@ -17,6 +18,7 @@
     width: number
     height: number
     selected: boolean
+    current: boolean
     onselect: (event: MouseEvent) => void
     onopen: () => void
     ondrag: (icon: string) => void
@@ -90,6 +92,9 @@
   draggable={item.exists}
   ondragstart={drag}
   {@attach whenVisible}
+  {@attach (node) => {
+    if (current) node.scrollIntoView({ block: 'nearest' })
+  }}
 >
   <span class="plate" style:width="{width}px" style:height="{height}px">
     {#if src}
