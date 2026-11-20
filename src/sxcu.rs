@@ -18,6 +18,7 @@ use crate::Result;
 use crate::syntax::{Parser, Response};
 
 const PNG_MIME: &str = "image/png";
+const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "PascalCase", default)]
@@ -235,8 +236,19 @@ pub async fn upload(uploader: &Uploader, png: Vec<u8>, file_name: &str) -> Resul
     let status = response.status().as_u16();
     let url = response.url().to_string();
     let headers = response.headers().clone();
-    let text = response.text().await.map_err(describe)?;
+    let text = read_text(response).await?;
     uploader.read_response(&Response { text, url, headers }, status, file_name)
+}
+
+async fn read_text(mut response: reqwest::Response) -> Result<String> {
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(describe)? {
+        if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
+            return Err("upload failed: the response is larger than 1 MiB".into());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(String::from_utf8_lossy(&body).into_owned())
 }
 
 /// reqwest errors include the URL, and request URLs often hold API keys.
@@ -378,6 +390,38 @@ mod tests {
             .read_response(&response(r#"{"error":"too big"}"#), 413, "a.png")
             .unwrap_err();
         assert_eq!(error.to_string(), "upload failed: HTTP 413 too big");
+    }
+
+    fn served(body: Vec<u8>) -> Result<String> {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0; 4096];
+            let _read = stream.read(&mut request).unwrap();
+            let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len());
+            stream.write_all(head.as_bytes()).unwrap();
+            stream.write_all(&body).ok();
+        });
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let text = runtime.block_on(async {
+            read_text(reqwest::get(format!("http://{address}/")).await.unwrap()).await
+        });
+        server.join().unwrap();
+        text
+    }
+
+    #[test]
+    fn responses_are_read_up_to_a_limit() {
+        assert_eq!(
+            served(b"https://x.test/1".to_vec()).unwrap(),
+            "https://x.test/1"
+        );
+        assert!(served(vec![b'a'; MAX_RESPONSE_BYTES + 1]).is_err());
     }
 
     #[test]
