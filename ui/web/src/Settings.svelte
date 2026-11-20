@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { eventCombo } from './lib/keys'
   import { applyTheme, loadPreferences, openConfig, savePreferences, type Config } from './ipc'
 
   const AFTER_CAPTURE = [
@@ -80,7 +81,7 @@
   }
 
   function onKeyDown(event: KeyboardEvent) {
-    if ((event.ctrlKey || event.metaKey) && event.key === 's') {
+    if (eventCombo(event) === 'ctrl+s') {
       event.preventDefault()
       if (dirty) save()
     }

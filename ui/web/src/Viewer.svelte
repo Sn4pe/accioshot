@@ -2,6 +2,7 @@
 <script lang="ts">
   import { image } from './ipc'
   import { untrack } from 'svelte'
+  import { eventCombo, keymap } from './lib/keys'
   import { entryKey, fileName, title, type Item } from './lib/library'
   import type { Point } from './lib/model'
   import { centered, clampOrigin, fitScale, stepScale, zoomAt } from './lib/viewport'
@@ -20,6 +21,7 @@
   const WHEEL_STEP = 100
   const WHEEL_LINE = 33
   const DRAG_SLOP = 3
+  const KEYS = keymap({})
 
   let src = $state('')
   let bytes = $state(0)
@@ -101,10 +103,10 @@
   }
 
   function onKeyDown(event: KeyboardEvent) {
-    if (!(event.ctrlKey || event.metaKey)) return
-    if (event.key === '=' || event.key === '+') setZoom(stepScale(scale, ZOOM_STEP))
-    else if (event.key === '-') setZoom(stepScale(scale, 1 / ZOOM_STEP))
-    else if (event.key === '0') setZoom(null)
+    const action = KEYS.get(eventCombo(event))
+    if (action === 'zoom_in') setZoom(stepScale(scale, ZOOM_STEP))
+    else if (action === 'zoom_out') setZoom(stepScale(scale, 1 / ZOOM_STEP))
+    else if (action === 'zoom_fit') setZoom(null)
     else return
     event.preventDefault()
   }

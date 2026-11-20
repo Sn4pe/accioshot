@@ -8,32 +8,26 @@
     clampRect,
     constrained,
     EMPTY_DOC,
-    eventCombo,
     hitHandle,
     hitTop,
     History,
     inside,
     isShape,
-    keymap,
-    MOVES,
     rectBetween,
     reordered,
     resized,
-    SHAPE_KINDS,
     translated,
-    type Action,
     type Annotation,
     type Doc,
     type HandleId,
     type Layer,
-    type Move,
     type Point,
     type Rect,
-    type Shape,
     type ShapeKind,
     type Text,
     type Tool,
   } from './lib/model'
+  import { eventCombo, keymap, MOVES, shortcutFor, type Action, type Move } from './lib/keys'
   import {
     dashedRect,
     exportPng,
@@ -796,8 +790,7 @@
   }
 
   function shortcut(action: Action) {
-    const combo = [...keys].find(([, value]) => value === action)?.[0]
-    return combo ? ` (${combo})` : ''
+    return shortcutFor(keys, action)
   }
 </script>
 

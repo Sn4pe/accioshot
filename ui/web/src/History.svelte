@@ -4,6 +4,7 @@
   import Frame from './Frame.svelte'
   import { copyEntry, deleteEntries, editEntry, historyItems, openEntry, startDrag, type Part } from './ipc'
   import Viewer from './Viewer.svelte'
+  import { eventCombo } from './lib/keys'
   import { byDay, entryKey, fileName, matches, pick, title, unique, type Entry, type Item } from './lib/library'
 
   const NOTE_MS = 2500
@@ -152,6 +153,7 @@
   }
 
   function onKeyDown(event: KeyboardEvent) {
+    const combo = eventCombo(event)
     swallowSpace = false
     if (event.key === ' ' && event.target instanceof HTMLInputElement) return
     if (event.key === ' ' && event.repeat) {
@@ -177,7 +179,7 @@
       return
     }
     if (event.target instanceof HTMLInputElement) return
-    if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
+    if (combo === 'ctrl+a') {
       event.preventDefault()
       setSelection(new Set(shown.map((item) => entryKey(item.entry))))
       return
@@ -194,10 +196,10 @@
       swallowSpace = true
       viewing = 'preview'
       return
-    } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    } else if (combo === 'ctrl+enter') {
       if (current.exists) open('file')
       else if (current.entry.url) open('url')
-    } else if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
+    } else if (combo === 'ctrl+c') {
       if (current.exists) copy('image', 'Image copied')
       else if (current.entry.url) copy('url', 'URL copied')
     }
