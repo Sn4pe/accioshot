@@ -97,6 +97,7 @@ pub fn run() -> Result<()> {
 
     register_shortcut(&config.tray.region_hotkey)?;
 
+    let pictures_dir = config.pictures_dir()?;
     let recent = history::recent(RECENT_COUNT);
     let tray = TrayIconBuilder::new()
         .with_tooltip("accioshot")
@@ -107,7 +108,7 @@ pub fn run() -> Result<()> {
     STATE.with_borrow_mut(|state| {
         *state = Some(State {
             tray,
-            pictures_dir: config.pictures_dir().unwrap_or_default(),
+            pictures_dir,
             seen: history_modified(),
         })
     });
