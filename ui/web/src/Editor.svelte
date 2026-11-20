@@ -554,16 +554,20 @@
   /** Esc: drop what is in progress first, close only when nothing is. */
   function escape() {
     if (confirmingDiscard) confirmingDiscard = false
-    else if (gesture) {
-      if (gesture.kind === 'select') selectedIds = gesture.base
-      gesture = null
-      draft = null
-      preview = null
-      cropDraft = null
-      marquee = null
-      cursor = panKey ? 'grab' : toolCursor()
-    } else if (selection.length) selectedIds = []
+    else if (gesture) cancelGesture()
+    else if (selection.length) selectedIds = []
     else requestDiscard()
+  }
+
+  function cancelGesture() {
+    if (!gesture) return
+    if (gesture.kind === 'select') selectedIds = gesture.base
+    gesture = null
+    draft = null
+    preview = null
+    cropDraft = null
+    marquee = null
+    cursor = panKey ? 'grab' : toolCursor()
   }
 
   function requestDiscard() {
@@ -896,6 +900,7 @@
     onpointerdown={onPointerDown}
     onpointermove={onPointerMove}
     onpointerup={onPointerUp}
+    onpointercancel={cancelGesture}
     ondblclick={onDoubleClick}
   >
     {#if failure}
