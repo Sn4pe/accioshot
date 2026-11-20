@@ -7,8 +7,6 @@
   import { eventCombo, withCtrl } from './lib/keys'
   import { byDay, entryKey, matches, pick, title, unique, type Entry, type Item } from './lib/library'
 
-  const NOTE_MS = 2500
-
   let items = $state.raw<Item[] | null>(null)
   let width = $state(250)
   let height = $state(150)
@@ -16,9 +14,8 @@
   let selected = $state.raw<Set<string>>(new Set())
   let anchor: string | null = null
   let confirming = $state(false)
-  let note = $state('')
+  let note = $state<{ text: string; id: number } | null>(null)
   let failure = $state('')
-  let noteTimer: ReturnType<typeof setTimeout> | undefined
   let revision = $state(0)
   let viewing = $state<'preview' | 'full' | null>(null)
   let swallowSpace = false
@@ -47,10 +44,8 @@
   }
 
   function say(text: string) {
-    note = text
+    note = { text, id: (note?.id ?? 0) + 1 }
     failure = ''
-    clearTimeout(noteTimer)
-    noteTimer = setTimeout(() => (note = ''), NOTE_MS)
   }
 
   async function copy(part: Part, done: string) {
@@ -206,9 +201,18 @@
 
   onMount(() => {
     void refresh()
-    return () => clearTimeout(noteTimer)
   })
 </script>
+
+{#snippet said()}
+  <span class="said" aria-live="polite">
+    {#if note}
+      {#key note.id}
+        <span class="fading" onanimationend={() => (note = null)}>{note.text}</span>
+      {/key}
+    {/if}
+  </span>
+{/snippet}
 
 <svelte:window
   onfocus={refresh}
@@ -287,7 +291,7 @@
             <button class="primary danger" onclick={() => remove(true)}>Delete the file too</button>
           {/if}
         {:else}
-          <span class="said" aria-live="polite">{note}</span>
+          {@render said()}
           {#if current.exists}
             <button class="quiet" onclick={() => copy('image', 'Image copied')}>Copy image</button>
             <button class="quiet" onclick={() => copy('path', 'Path copied')}>Copy path</button>
@@ -322,13 +326,13 @@
             <button class="primary danger" onclick={() => remove(true)}>Delete the files too</button>
           {/if}
         {:else}
-          <span class="said" aria-live="polite">{note}</span>
+          {@render said()}
           <button class="quiet" onclick={() => (confirming = true)}>Remove</button>
         {/if}
       </div>
     </footer>
   {:else if note}
-    <footer><span class="said" aria-live="polite">{note}</span></footer>
+    <footer>{@render said()}</footer>
   {/if}
 </div>
 
@@ -440,6 +444,22 @@
   .said {
     margin-right: 8px;
     color: var(--soft);
+  }
+  .fading {
+    animation: fade 2.5s forwards;
+  }
+  @keyframes fade {
+    80% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .fading {
+      animation-timing-function: steps(1, end);
+    }
   }
   .question {
     margin-right: 8px;
