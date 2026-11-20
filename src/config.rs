@@ -312,13 +312,17 @@ impl Config {
     }
 
     fn load_from(path: &Path) -> Result<Config> {
-        match std::fs::read_to_string(path) {
-            Ok(text) => {
-                toml::from_str(&text).map_err(|error| format!("{}: {error}", path.display()).into())
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Config::default());
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),
-            Err(error) => Err(format!("cannot read {}: {error}", path.display()).into()),
-        }
+            Err(error) => return Err(format!("cannot read {}: {error}", path.display()).into()),
+        };
+        let in_file = |error: &dyn std::fmt::Display| format!("{}: {error}", path.display());
+        let config: Config = toml::from_str(&text).map_err(|error| in_file(&error))?;
+        config.validate().map_err(|error| in_file(&error))?;
+        Ok(config)
     }
 
     pub fn pictures_dir(&self) -> Result<PathBuf> {
@@ -495,6 +499,21 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&real).unwrap(), "delay = 3.0\n");
         let mode = std::fs::metadata(&real).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o640);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn invalid_values_are_not_loaded() {
+        let dir = std::env::temp_dir().join(format!("accioshot-invalid-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "[history]\nthumbnail_width = 0\n").unwrap();
+        let error = Config::load_from(&path).unwrap_err().to_string();
+        assert!(error.starts_with(&path.display().to_string()), "{error}");
+        std::fs::write(&path, "name_pattern = \" \"\n").unwrap();
+        assert!(Config::load_from(&path).is_err());
+        std::fs::write(&path, "delay = 1.0\n").unwrap();
+        assert_eq!(Config::load_from(&path).unwrap().delay, 1.0);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
