@@ -86,17 +86,6 @@ fn command() -> Command {
     }
 }
 
-#[derive(Debug)]
-struct Busy;
-
-impl std::fmt::Display for Busy {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("another capture is in progress")
-    }
-}
-
-impl Error for Busy {}
-
 fn main() {
     let (result, is_capture) = match command() {
         Command::Capture(args) => (run(args), true),
@@ -106,7 +95,7 @@ fn main() {
     if let Err(error) = result {
         let message = error.to_string();
         eprintln!("accioshot: {message}");
-        if is_capture && message != capture::CANCELLED && !error.is::<Busy>() {
+        if is_capture && !error.is::<capture::Stopped>() {
             notify_failure(&message);
         }
         std::process::exit(1);
@@ -236,7 +225,7 @@ fn run(args: CaptureArgs) -> Result<()> {
     // Load first, a broken uploader should fail before the user picks a region.
     let mut uploader = actions.upload.as_deref().map(sxcu::load).transpose()?;
     let Some(selecting) = daemon::lock("accioshot-capture.lock")? else {
-        return Err(Busy.into());
+        return Err(capture::Stopped::Busy.into());
     };
     std::thread::sleep(delay);
     // Before the selector or the editor take the focus.
@@ -258,7 +247,7 @@ fn run(args: CaptureArgs) -> Result<()> {
     };
     if actions.edit {
         let edited = match editor::edit(&config.editor.command, &png) {
-            Ok(edited) => edited.ok_or(capture::CANCELLED)?,
+            Ok(edited) => edited.ok_or(capture::Stopped::Cancelled)?,
             Err(error) => {
                 return Err(keep_capture(
                     &config,

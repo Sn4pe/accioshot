@@ -9,7 +9,7 @@ use reqwest::Url;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
-use super::{Area, CANCELLED, decode, encode_crop, pixel_rect};
+use super::{Area, Stopped, decode, encode_crop, pixel_rect};
 use crate::Result;
 use crate::names::Window;
 
@@ -47,7 +47,7 @@ async fn portal(interactive: bool) -> Result<Vec<u8>> {
         .await?
         .response()
         .map_err(|error| match error {
-            ashpd::Error::Response(ResponseError::Cancelled) => CANCELLED.into(),
+            ashpd::Error::Response(ResponseError::Cancelled) => Stopped::Cancelled.into(),
             error => Box::<dyn std::error::Error>::from(format!("screenshot portal: {error}")),
         })?;
     let path = Url::parse(response.uri().as_str())?

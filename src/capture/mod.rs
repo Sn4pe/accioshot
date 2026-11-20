@@ -21,7 +21,22 @@ pub use platform::layout;
 use crate::config::RegionConfig;
 use crate::{Result, region};
 
-pub const CANCELLED: &str = "capture cancelled";
+#[derive(Debug)]
+pub enum Stopped {
+    Cancelled,
+    Busy,
+}
+
+impl std::fmt::Display for Stopped {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Stopped::Cancelled => "capture cancelled",
+            Stopped::Busy => "another capture is in progress",
+        })
+    }
+}
+
+impl std::error::Error for Stopped {}
 
 #[derive(Clone, Copy, ValueEnum)]
 pub enum Mode {
@@ -73,7 +88,8 @@ async fn select_region(options: &RegionConfig) -> Result<Vec<u8>> {
     let magnifier = options
         .magnifier
         .then(|| region::Magnifier::new(options.magnifier_size, options.magnifier_pixels));
-    let (area, layout) = region::select(&image.to_rgba8(), windows, magnifier)?.ok_or(CANCELLED)?;
+    let (area, layout) =
+        region::select(&image.to_rgba8(), windows, magnifier)?.ok_or(Stopped::Cancelled)?;
     let rect = pixel_rect(area, &layout, image.width(), image.height())?;
     let last = LastRegion {
         rect,
