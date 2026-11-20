@@ -29,12 +29,20 @@ export function fontOf(size: number, family: string) {
   return `${size}px ${family}`
 }
 
-export function measureText(ctx: CanvasRenderingContext2D, text: string, size: number, family: string) {
-  ctx.save()
+export function context2d(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('this view cannot draw on a canvas')
+  return ctx
+}
+
+let measuring: CanvasRenderingContext2D | null = null
+
+export function measureText(text: string, size: number, family: string) {
+  measuring ??= context2d(document.createElement('canvas'))
+  const ctx = measuring
   ctx.font = fontOf(size, family)
   const lines = text.split('\n')
   const width = Math.max(...lines.map((line) => ctx.measureText(line).width))
-  ctx.restore()
   return { width, height: lines.length * size * LINE_HEIGHT }
 }
 
@@ -68,14 +76,14 @@ function drawArrow(ctx: CanvasRenderingContext2D, shape: Shape) {
 function effectArea(ctx: CanvasRenderingContext2D, shape: Shape, view: Rect) {
   const rect = clampRect(rectBetween(shape.a, shape.b), view)
   const source = { x: rect.x - view.x, y: rect.y - view.y, width: rect.width, height: rect.height }
-  return rect.width >= 1 && rect.height >= 1 ? { rect, source, canvas: ctx.canvas as HTMLCanvasElement } : null
+  return rect.width >= 1 && rect.height >= 1 ? { rect, source, canvas: ctx.canvas } : null
 }
 
 function scratch(width: number, height: number) {
   const canvas = document.createElement('canvas')
   canvas.width = Math.max(1, Math.round(width))
   canvas.height = Math.max(1, Math.round(height))
-  return { canvas, ctx: canvas.getContext('2d')! }
+  return { canvas, ctx: context2d(canvas) }
 }
 
 function drawPixelate(ctx: CanvasRenderingContext2D, shape: Shape, view: Rect) {
@@ -305,7 +313,7 @@ export async function exportPng(doc: Doc, image: CanvasImageSource, size: { widt
   const canvas = document.createElement('canvas')
   canvas.width = Math.round(view.width)
   canvas.height = Math.round(view.height)
-  renderDoc(canvas.getContext('2d')!, doc, image, size)
+  renderDoc(context2d(canvas), doc, image, size)
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
   if (!blob) throw new Error('could not encode the image')
   return new Uint8Array(await blob.arrayBuffer())

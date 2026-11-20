@@ -2,7 +2,8 @@
 <script lang="ts">
   import { discard, editorSettings, finishImage, loadState, readImage, saveState } from './ipc'
   import { getCurrentWindow } from '@tauri-apps/api/window'
-  import { onMount, untrack } from 'svelte'
+  import { onMount } from 'svelte'
+  import { devicePixelRatio } from 'svelte/reactivity/window'
   import Glyph from './Glyph.svelte'
   import {
     clampRect,
@@ -31,6 +32,7 @@
   import {
     dashedRect,
     exportPng,
+    context2d,
     imageRect,
     LINE_HEIGHT,
     measureText,
@@ -91,7 +93,6 @@
   const DUPLICATE_OFFSET = 10
   const MIN_ZOOM = 0.05
   const STAGE_MARGIN = 24
-  const LOAD_TIMEOUT_MS = 10_000
   const CLOSE_HINT = 'Close this window, the original capture is kept in the captures folder.'
 
   const history = new History()
@@ -117,17 +118,13 @@
   let canRedo = $state(false)
 
   let gesture: Gesture | null = null
-  let canvas: HTMLCanvasElement | undefined = $state()
   let stageWidth = $state(0)
   let stageHeight = $state(0)
   // The document in image pixels. Blur and Pixelate read back from it, so it is never scaled.
-  const sheet = document.createElement('canvas')
-  let sheetVersion = $state(0)
   // null fits the view in the window, and a null origin centers it.
   let zoom = $state<number | null>(null)
   let origin = $state.raw<Point | null>(null)
   let panKey = $state<string | null>(null)
-  let ratio = $state(window.devicePixelRatio || 1)
   // What the last arrow press moved, so a run of presses is one undo step.
   let nudged: string | null = null
 
@@ -288,7 +285,7 @@
       if (existing) commit({ ...doc, annotations: doc.annotations.filter((a) => a !== existing) })
       return
     }
-    const measured = measureText(canvas!.getContext('2d')!, current.text, current.size, current.font)
+    const measured = measureText(current.text, current.size, current.font)
     const text: Text = {
       id: current.id ?? nextId++,
       kind: 'Text',
@@ -309,7 +306,7 @@
 
   function onPointerDown(event: PointerEvent & StageEvent) {
     // A second button mid-drag would leave the first gesture's draft or preview behind.
-    if (!canvas || !image || gesture) return
+    if (!image || gesture) return
     nudged = null
     if (event.button === 1 || (event.button === 0 && panKey)) {
       // Also keeps the focus where it is, so a text being edited stays open.
@@ -389,7 +386,7 @@
       }
       return
     }
-    if (!canvas || editing) return
+    if (!image || editing) return
     const p = pointAt(event)
     if (!gesture) {
       updateCursor(p)
@@ -492,7 +489,7 @@
   }
 
   function onDoubleClick(event: StageEvent) {
-    if (tool !== 'Select' || !canvas) return
+    if (tool !== 'Select' || !image) return
     const target = hitTop(doc.annotations, pointAt(event), 6 / scale)
     if (target?.kind === 'Text') startText(target.at, target)
   }
@@ -511,7 +508,7 @@
       }
       const updated = { ...annotation, ...fits } as Annotation
       if (updated.kind === 'Text') {
-        Object.assign(updated, measureText(canvas!.getContext('2d')!, updated.text, updated.size, updated.font))
+        Object.assign(updated, measureText(updated.text, updated.size, updated.font))
       }
       return updated
     })
@@ -673,8 +670,8 @@
   }
 
   const editorBox = $derived.by(() => {
-    if (!editing || !canvas) return null
-    const measured = measureText(canvas.getContext('2d')!, editing.text || ' ', editing.size, editing.font)
+    if (!editing) return null
+    const measured = measureText(editing.text || ' ', editing.size, editing.font)
     return {
       left: (editing.at.x - at.x) * scale,
       top: (editing.at.y - at.y) * scale,
@@ -684,21 +681,23 @@
     }
   })
 
-  $effect(() => {
-    if (!image) return
+  const sheet = $derived.by(() => {
+    if (!image) return null
+    const sheet = document.createElement('canvas')
     sheet.width = Math.round(view.width)
     sheet.height = Math.round(view.height)
     // The text being edited lives in the textarea until it is committed.
     const hidden = editing?.id ?? null
     const visible =
       hidden === null ? shown : { ...shown, annotations: shown.annotations.filter((a) => a.id !== hidden) }
-    renderDoc(sheet.getContext('2d')!, visible, image, size, draft)
-    sheetVersion = untrack(() => sheetVersion) + 1
+    renderDoc(context2d(sheet), visible, image, size, draft)
+    return sheet
   })
 
   // Panning and zooming only copy the sheet, the blur and pixelate effects are not redone.
-  $effect(() => {
-    if (!canvas || !image || !sheetVersion) return
+  function paint(canvas: HTMLCanvasElement) {
+    if (!sheet) return
+    const ratio = devicePixelRatio.current ?? 1
     const width = Math.round(stageWidth * ratio)
     const height = Math.round(stageHeight * ratio)
     // Setting the size reallocates the canvas, so not on every pan frame.
@@ -706,7 +705,7 @@
       canvas.width = width
       canvas.height = height
     }
-    const ctx = canvas.getContext('2d')!
+    const ctx = context2d(canvas)
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.clearRect(0, 0, width, height)
     ctx.setTransform(scale * ratio, 0, 0, scale * ratio, -at.x * scale * ratio, -at.y * scale * ratio)
@@ -726,15 +725,7 @@
       ctx.lineWidth = 1 / scale
       ctx.strokeRect(cropDraft.x, cropDraft.y, cropDraft.width, cropDraft.height)
     }
-  })
-
-  // devicePixelRatio is not reactive, this follows the window to a monitor with another scale.
-  $effect(() => {
-    const query = matchMedia(`(resolution: ${ratio}dppx)`)
-    const update = () => (ratio = window.devicePixelRatio || 1)
-    query.addEventListener('change', update)
-    return () => query.removeEventListener('change', update)
-  })
+  }
 
   onMount(() => {
     const unlisten = getCurrentWindow().onCloseRequested((event) => {
@@ -746,34 +737,24 @@
   })
 
   async function load() {
-    let step = 'settings'
-    // A promise that never settles shows no error by itself.
-    const stalled = setTimeout(() => {
-      failure = `The capture did not load, stuck on ${step}. ${CLOSE_HINT}`
-    }, LOAD_TIMEOUT_MS)
     try {
       const loaded = await editorSettings()
       keys = keymap(loaded.keys)
       settings = loaded
       tool = isTool(loaded.tool) ? loaded.tool : 'Arrow'
       if (loaded.remember_last) {
-        step = 'load_state'
         const state = await loadState()
         if (isTool(state?.tool)) tool = state.tool
         if (state?.styles) styles = state.styles
       }
       cursor = cursorFor(tool)
-      step = 'read_image'
       const bytes = await readImage()
-      step = 'decode'
       const decoded = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
       zoom = loaded.initial_zoom === 'fit' ? null : Math.min(loaded.initial_zoom, loaded.max_zoom)
       image = decoded
       failure = ''
     } catch (error) {
       failure = `${error}. ${CLOSE_HINT}`
-    } finally {
-      clearTimeout(stalled)
     }
   }
 
@@ -895,7 +876,7 @@
       <p class="loading">Loading capture</p>
     {/if}
     {#if image}
-      <canvas bind:this={canvas}></canvas>
+      <canvas {@attach paint}></canvas>
       {#if editing && editorBox}
         <textarea
           bind:value={editing.text}
