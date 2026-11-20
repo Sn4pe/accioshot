@@ -54,6 +54,14 @@ pub enum Mode {
     Screen,
 }
 
+impl Mode {
+    pub fn name(self) -> String {
+        self.to_possible_value()
+            .map(|value| value.get_name().to_string())
+            .unwrap_or_default()
+    }
+}
+
 pub async fn capture(mode: Mode, options: &RegionConfig) -> Result<Vec<u8>> {
     match mode {
         Mode::Region => select_region(options).await,
@@ -223,6 +231,12 @@ impl From<([i32; 2], [i32; 2])> for Area {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn modes_are_named_like_the_command_line() {
+        assert_eq!(Mode::LastRegion.name(), "last-region");
+        assert_eq!(Mode::Region.name(), "region");
+    }
 
     #[test]
     fn last_region_survives_a_round_trip() {

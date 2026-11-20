@@ -12,6 +12,7 @@ use super::{
     open, single_instance, spawn_capture, spawn_ui,
 };
 use crate::Result;
+use crate::capture::Mode;
 use crate::config::Config;
 use crate::history::{self, Entry};
 
@@ -69,7 +70,7 @@ impl ksni::Tray for Tray {
     }
 
     fn activate(&mut self, _x: i32, _y: i32) {
-        spawn_capture(self.exe.clone(), "region", MENU_CLOSE_DELAY);
+        spawn_capture(self.exe.clone(), Mode::Region, MENU_CLOSE_DELAY);
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {

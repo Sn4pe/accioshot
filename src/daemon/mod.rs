@@ -19,18 +19,19 @@ use std::time::{Duration, SystemTime};
 pub use platform::run;
 
 use crate::Result;
+use crate::capture::Mode;
 use crate::history::{self, Entry};
 
 const RECENT_COUNT: usize = 10;
 const HISTORY_POLL: Duration = Duration::from_secs(2);
 // Otherwise the frozen capture can include the tray menu while it closes.
 const MENU_CLOSE_DELAY: Duration = Duration::from_millis(250);
-const MODES: [(&str, &str); 5] = [
-    ("Region", "region"),
-    ("Last region", "last-region"),
-    ("Active window", "window"),
-    ("Focused monitor", "monitor"),
-    ("All monitors", "screen"),
+const MODES: [(&str, Mode); 5] = [
+    ("Region", Mode::Region),
+    ("Last region", Mode::LastRegion),
+    ("Active window", Mode::Window),
+    ("Focused monitor", Mode::Monitor),
+    ("All monitors", Mode::Screen),
 ];
 
 /// Held until the process exits, the kernel releases it even after a crash.
@@ -78,11 +79,12 @@ fn entry_text(entry: &Entry) -> String {
         .unwrap_or_default()
 }
 
-fn spawn_capture(exe: PathBuf, mode: &'static str, delay: Duration) {
+fn spawn_capture(exe: PathBuf, mode: Mode, delay: Duration) {
     std::thread::spawn(move || {
         std::thread::sleep(delay);
         let result = Command::new(exe)
-            .args(["capture", mode])
+            .arg("capture")
+            .arg(mode.name())
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .status();

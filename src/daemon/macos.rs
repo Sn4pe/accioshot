@@ -20,6 +20,7 @@ use super::{
     HISTORY_POLL, MENU_CLOSE_DELAY, MODES, RECENT_COUNT, entry_label, entry_text, history_modified,
     open, single_instance, spawn_capture, spawn_ui,
 };
+use crate::capture::Mode;
 use crate::config::Config;
 use crate::history::{self, Entry};
 use crate::{Result, clipboard};
@@ -121,7 +122,7 @@ pub fn run() -> Result<()> {
             ..
         } = event
         {
-            capture("region", Duration::ZERO);
+            capture(Mode::Region, Duration::ZERO);
         }
     }));
 
@@ -158,7 +159,7 @@ fn icon() -> Result<Icon> {
 fn menu(recent: &[Entry]) -> Result<Menu> {
     let menu = Menu::new();
     for (label, mode) in MODES {
-        menu.append(&MenuItem::with_id(mode, label, true, None))?;
+        menu.append(&MenuItem::with_id(mode.name(), label, true, None))?;
     }
     menu.append(&PredefinedMenuItem::separator())?;
     let submenu = Submenu::new("Recent", !recent.is_empty());
@@ -177,7 +178,7 @@ fn menu(recent: &[Entry]) -> Result<Menu> {
 }
 
 fn on_menu(id: &str) {
-    if let Some((_, mode)) = MODES.iter().find(|(_, mode)| *mode == id) {
+    if let Some(&(_, mode)) = MODES.iter().find(|(_, mode)| mode.name() == id) {
         capture(mode, MENU_CLOSE_DELAY);
     } else if id == QUIT {
         if let Some(mtm) = MainThreadMarker::new() {
@@ -198,7 +199,7 @@ fn on_menu(id: &str) {
     }
 }
 
-fn capture(mode: &'static str, delay: Duration) {
+fn capture(mode: Mode, delay: Duration) {
     if let Some(exe) = EXE.get() {
         spawn_capture(exe.clone(), mode, delay);
     }
@@ -256,6 +257,6 @@ fn register_shortcut(shortcut: &str) -> Result<()> {
 }
 
 extern "C" fn on_shortcut(_: *mut c_void, _: *mut c_void, _: *mut c_void) -> i32 {
-    capture("region", Duration::ZERO);
+    capture(Mode::Region, Duration::ZERO);
     0
 }
