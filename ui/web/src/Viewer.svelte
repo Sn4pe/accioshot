@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core'
+  import { image } from './ipc'
   import { untrack } from 'svelte'
   import { entryKey, fileName, title, type Item } from './lib/library'
   import type { Point } from './lib/model'
@@ -127,7 +127,7 @@
     zoom = null
     origin = null
     if (current.exists) {
-      invoke<ArrayBuffer>('image', { entry: current.entry })
+      image(current.entry)
         .then((data) => {
           if (cancelled) return
           bytes = data.byteLength

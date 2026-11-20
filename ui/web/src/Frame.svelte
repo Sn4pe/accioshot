@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core'
   import { onDestroy } from 'svelte'
+  import { thumbnail } from './ipc'
   import { clock, title, type Item } from './lib/library'
 
   let {
@@ -66,7 +66,7 @@
   async function load() {
     if (!entry.path || !item.exists) return
     try {
-      const bytes = await invoke<ArrayBuffer>('thumbnail', { entry })
+      const bytes = await thumbnail(entry)
       if (destroyed) return
       blob = new Blob([bytes], { type: 'image/png' })
       src = URL.createObjectURL(blob)

@@ -1,12 +1,10 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <script lang="ts">
-  import { Channel, invoke } from '@tauri-apps/api/core'
   import { onMount, tick } from 'svelte'
   import Frame from './Frame.svelte'
+  import { copyEntry, deleteEntries, editEntry, historyItems, openEntry, startDrag, type Part } from './ipc'
   import Viewer from './Viewer.svelte'
   import { byDay, entryKey, fileName, matches, pick, title, unique, type Entry, type Item } from './lib/library'
-
-  type Part = 'image' | 'path' | 'url' | 'deletion_url' | 'file' | 'folder'
 
   const NOTE_MS = 2500
 
@@ -38,7 +36,7 @@
 
   async function refresh() {
     try {
-      const result = await invoke<{ items: Item[]; thumbnail_width: number; thumbnail_height: number }>('history_items')
+      const result = await historyItems()
       items = unique(result.items)
       width = result.thumbnail_width
       height = result.thumbnail_height
@@ -57,7 +55,7 @@
   async function copy(part: Part, done: string) {
     if (!current) return
     try {
-      await invoke('copy_entry', { entry: current.entry, part })
+      await copyEntry(current.entry, part)
       say(done)
     } catch (error) {
       failure = String(error)
@@ -67,7 +65,7 @@
   async function open(part: Part) {
     if (!current) return
     try {
-      await invoke('open_entry', { entry: current.entry, part })
+      await openEntry(current.entry, part)
     } catch (error) {
       failure = String(error)
     }
@@ -76,7 +74,7 @@
   async function edit() {
     if (!current) return
     try {
-      await invoke('edit_entry', { entry: current.entry })
+      await editEntry(current.entry)
       revision++
       await refresh()
     } catch (error) {
@@ -88,12 +86,7 @@
     const group = selected.has(entryKey(item.entry)) ? chosen : [item]
     const paths = group.filter((one) => one.exists).map((one) => one.entry.path!)
     try {
-      await invoke('plugin:drag|start_drag', {
-        item: paths,
-        image: icon,
-        options: { mode: 'copy' },
-        onEvent: new Channel(),
-      })
+      await startDrag(paths, icon)
     } catch (error) {
       failure = String(error)
     }
@@ -126,7 +119,7 @@
     const wasViewing = viewing
     confirming = false
     try {
-      const failures = await invoke<string[]>('delete_entries', { entries, deleteFile })
+      const failures = await deleteEntries(entries, deleteFile)
       setSelection(new Set())
       await refresh()
       if (wasViewing && next) {

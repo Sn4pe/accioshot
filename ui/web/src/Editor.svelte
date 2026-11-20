@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core'
+  import { discard, editorSettings, finishImage, loadState, readImage, saveState } from './ipc'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import { onMount, untrack } from 'svelte'
   import Glyph from './Glyph.svelte'
@@ -44,26 +44,9 @@
     renderSelection,
     viewRect,
   } from './lib/render'
-  import { cursorFor } from './lib/tools'
+  import { cursorFor, type EditorSettings as Settings, type Style } from './lib/tools'
   import { centered, clampOrigin, fitScale, stepScale, zoomAt } from './lib/viewport'
 
-  type Settings = {
-    tool: string
-    colors: string[]
-    highlight_color: string
-    stroke_width: number
-    font_family: string
-    font_size: number
-    step_size: number
-    blur_strength: number
-    pixel_size: number
-    remember_last: boolean
-    initial_zoom: number | 'fit'
-    zoom_step: number
-    max_zoom: number
-    keys: Record<string, string>
-  }
-  type Style = { color: string; size: number }
   type Editing = { id: number | null; at: Point; text: string; color: string; size: number; font: string }
   type Gesture =
     | { kind: 'draw'; start: Point }
@@ -591,15 +574,13 @@
 
   async function rememberState() {
     if (settings?.remember_last)
-      await invoke('save_state', { state: { tool, styles } }).catch((error: unknown) =>
-        console.error('save_state:', error),
-      )
+      await saveState({ tool, styles }).catch((error: unknown) => console.error('save_state:', error))
   }
 
   async function finishDiscard() {
     try {
       await rememberState()
-      await invoke('discard', { loaded: image !== null })
+      await discard(image !== null)
     } catch (error) {
       failure = String(error)
     }
@@ -612,7 +593,7 @@
     try {
       const png = await exportPng(doc, image, size)
       await rememberState()
-      await invoke(command, png)
+      await finishImage(command, png)
     } catch (error) {
       failure = String(error)
       saving = false
@@ -789,19 +770,19 @@
       failure = `The capture did not load, stuck on ${step}. ${CLOSE_HINT}`
     }, LOAD_TIMEOUT_MS)
     try {
-      const loaded = await invoke<Settings>('settings')
+      const loaded = await editorSettings()
       keys = keymap(loaded.keys)
       settings = loaded
       tool = isTool(loaded.tool) ? loaded.tool : 'Arrow'
       if (loaded.remember_last) {
         step = 'load_state'
-        const state = await invoke<{ tool?: unknown; styles?: Partial<Record<Tool, Style>> } | null>('load_state')
+        const state = await loadState()
         if (isTool(state?.tool)) tool = state.tool
         if (state?.styles) styles = state.styles
       }
       cursor = cursorFor(tool)
       step = 'read_image'
-      const bytes = await invoke<ArrayBuffer>('read_image')
+      const bytes = await readImage()
       step = 'decode'
       const decoded = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
       zoom = loaded.initial_zoom === 'fit' ? null : Math.min(loaded.initial_zoom, loaded.max_zoom)

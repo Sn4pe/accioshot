@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { invoke } from '@tauri-apps/api/core'
 import { mount } from 'svelte'
 import './app.css'
 import Editor from './Editor.svelte'
 import History from './History.svelte'
 import Settings from './Settings.svelte'
-import { applyTheme } from './lib/theme'
+import { applyTheme, windowName } from './ipc'
 
 const WINDOWS = { edit: Editor, history: History, settings: Settings }
 
@@ -24,7 +23,7 @@ function isWindow(name: string): name is keyof typeof WINDOWS {
 
 const target = document.getElementById('app') ?? document.body
 
-Promise.all([invoke<string>('window_name'), applyTheme()])
+Promise.all([windowName(), applyTheme()])
   .then(([name]) => {
     if (!isWindow(name)) throw new Error(`Unknown window: ${name}`)
     mount(WINDOWS[name], { target })
