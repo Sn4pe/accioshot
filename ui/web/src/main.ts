@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import { invoke } from '@tauri-apps/api/core'
 import { mount } from 'svelte'
 import './app.css'
@@ -16,6 +17,17 @@ if (!import.meta.env.DEV) {
   })
 }
 
-Promise.all([invoke<keyof typeof WINDOWS>('window_name'), applyTheme()]).then(([name]) => {
-  mount(WINDOWS[name], { target: document.getElementById('app')! })
-})
+function isWindow(name: string): name is keyof typeof WINDOWS {
+  return Object.hasOwn(WINDOWS, name)
+}
+
+const target = document.getElementById('app') ?? document.body
+
+Promise.all([invoke<string>('window_name'), applyTheme()])
+  .then(([name]) => {
+    if (!isWindow(name)) throw new Error(`Unknown window: ${name}`)
+    mount(WINDOWS[name], { target })
+  })
+  .catch((error: unknown) => {
+    target.textContent = String(error)
+  })
