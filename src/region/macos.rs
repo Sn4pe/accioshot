@@ -147,7 +147,7 @@ pub fn select(
         screen.window.orderOut(None);
     }
     flush();
-    Ok(result.map(|area| (area, layout)))
+    Ok(result.selected().map(|area| (area, layout)))
 }
 
 fn open_screen(
@@ -233,10 +233,10 @@ fn handle(
         NSEventType::MouseMoved | NSEventType::LeftMouseDragged => gesture.cursor = Some(position),
         NSEventType::LeftMouseDown => gesture.pressed(position),
         NSEventType::LeftMouseUp => gesture.released_at(position, windows),
-        NSEventType::RightMouseDown => gesture.result = Some(None),
+        NSEventType::RightMouseDown => gesture.cancel(),
         NSEventType::KeyDown => {
             if event.keyCode() == KEY_ESCAPE {
-                gesture.result = Some(None);
+                gesture.cancel();
             }
             // Passing keys on would only beep.
             return;

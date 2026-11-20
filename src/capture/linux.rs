@@ -62,7 +62,7 @@ async fn portal(interactive: bool) -> Result<Vec<u8>> {
 /// and those files are not ours to delete.
 fn remove_if_temporary(path: &Path) {
     if dirs::runtime_dir().is_some_and(|runtime| path.starts_with(runtime)) {
-        let _ = std::fs::remove_file(path);
+        std::fs::remove_file(path).ok();
     }
 }
 

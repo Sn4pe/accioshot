@@ -64,29 +64,38 @@ fn expand(pattern: &str, source: &Source) -> io::Result<String> {
     let twelve_hours = pattern.contains("%pm");
     let mut output = String::new();
     let mut rest = pattern;
-    while let Some(start) = rest.find('%') {
-        output.push_str(&rest[..start]);
-        rest = &rest[start + 1..];
-        match TOKENS.iter().find(|token| rest.starts_with(**token)) {
-            Some(token) => {
-                rest = &rest[token.len()..];
-                match *token {
-                    "rn" | "ra" | "rx" => {
-                        let (length, after) = random_length(rest);
-                        rest = after;
-                        output.push_str(&random_token(token, length)?);
-                    }
-                    _ => output.push_str(&value(token, source, twelve_hours)?),
-                }
+    while let Some((before, after)) = rest.split_once('%') {
+        output.push_str(before);
+        rest = after;
+        let found = TOKENS
+            .iter()
+            .find_map(|token| Some((*token, rest.strip_prefix(token)?)));
+        let Some((token, after)) = found else {
+            output.push('%');
+            continue;
+        };
+        rest = after;
+        let expanded = match token {
+            "rn" | "ra" | "rx" => {
+                let (length, after) = random_length(rest);
+                rest = after;
+                Some(random_token(token, length)?)
             }
-            None => output.push('%'),
+            _ => value(token, source, twelve_hours)?,
+        };
+        match expanded {
+            Some(text) => output.push_str(&text),
+            None => {
+                output.push('%');
+                output.push_str(token);
+            }
         }
     }
     output.push_str(rest);
     Ok(output)
 }
 
-fn value(token: &str, source: &Source, twelve_hours: bool) -> io::Result<String> {
+fn value(token: &str, source: &Source, twelve_hours: bool) -> io::Result<Option<String>> {
     let date = |format: &str| source.now.format(format).to_string();
     let window = |read: fn(&Window) -> &str| {
         source
@@ -97,7 +106,7 @@ fn value(token: &str, source: &Source, twelve_hours: bool) -> io::Result<String>
         0 => String::new(),
         value => value.to_string(),
     };
-    Ok(match token {
+    Ok(Some(match token {
         "y" => date("%Y"),
         "yy" => date("%y"),
         "mo" => date("%m"),
@@ -121,8 +130,8 @@ fn value(token: &str, source: &Source, twelve_hours: bool) -> io::Result<String>
             .unwrap_or_default(),
         "t" => window(|window| &window.title),
         "pn" => window(|window| &window.process),
-        _ => unreachable!("every token in TOKENS has a value"),
-    })
+        _ => return Ok(None),
+    }))
 }
 
 /// ShareX's `%ra{10}`: repeats a random token.
@@ -191,12 +200,13 @@ fn sanitize(name: &str) -> String {
             character => character,
         })
         .collect();
-    let clean = clean.trim().trim_start_matches('.');
-    let mut end = clean.len().min(MAX_NAME_BYTES);
-    while !clean.is_char_boundary(end) {
-        end -= 1;
-    }
-    clean[..end].to_string()
+    clean
+        .trim()
+        .trim_start_matches('.')
+        .char_indices()
+        .take_while(|(start, character)| start + character.len_utf8() <= MAX_NAME_BYTES)
+        .map(|(_, character)| character)
+        .collect()
 }
 
 #[cfg(test)]
@@ -234,6 +244,19 @@ mod tests {
     }
 
     #[test]
+    fn every_token_has_a_value() {
+        for token in TOKENS
+            .iter()
+            .filter(|token| !["rn", "ra", "rx"].contains(token))
+        {
+            assert!(
+                value(token, &source(None), false).unwrap().is_some(),
+                "{token}"
+            );
+        }
+    }
+
+    #[test]
     fn unknown_tokens_stay_as_text() {
         assert_eq!(name("100%-%q%"), "100%-%q%.png");
     }
@@ -242,7 +265,7 @@ mod tests {
     fn random_tokens_repeat_and_are_capped() {
         let digits = name("%rn{8}");
         assert_eq!(digits.len(), "12345678.png".len());
-        assert!(digits[..8].bytes().all(|byte| byte.is_ascii_digit()));
+        assert!(digits.bytes().take(8).all(|byte| byte.is_ascii_digit()));
         assert_eq!(name("%ra").len(), "x.png".len());
         assert_eq!(name("%rx{9999}").len(), MAX_RANDOM_LENGTH + ".png".len());
     }
@@ -251,7 +274,7 @@ mod tests {
     fn guid_has_the_right_shape() {
         let value = guid().unwrap();
         assert_eq!(value.len(), 36);
-        assert_eq!(&value[14..15], "4");
+        assert_eq!(value.chars().nth(14), Some('4'));
     }
 
     #[test]

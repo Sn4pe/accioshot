@@ -477,7 +477,7 @@ mod tests {
     fn saving_writes_through_a_link_and_keeps_its_mode() {
         use std::os::unix::fs::{PermissionsExt, symlink};
         let dir = std::env::temp_dir().join(format!("accioshot-link-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::remove_dir_all(&dir).ok();
         std::fs::create_dir_all(&dir).unwrap();
         let (real, link) = (dir.join("real.toml"), dir.join("config.toml"));
         std::fs::write(&real, "delay = 1.0\n").unwrap();

@@ -54,11 +54,28 @@ impl Magnifier {
 struct Gesture {
     cursor: Option<(f64, f64)>,
     drag_start: Option<(f64, f64)>,
-    /// Some(None) means cancelled.
-    result: Option<Option<Area>>,
+    result: Option<Outcome>,
+}
+
+enum Outcome {
+    Selected(Area),
+    Cancelled,
+}
+
+impl Outcome {
+    fn selected(self) -> Option<Area> {
+        match self {
+            Outcome::Selected(area) => Some(area),
+            Outcome::Cancelled => None,
+        }
+    }
 }
 
 impl Gesture {
+    fn cancel(&mut self) {
+        self.result = Some(Outcome::Cancelled);
+    }
+
     fn selection(&self) -> Option<Area> {
         Some(rect_between(self.drag_start?, self.cursor?))
     }
@@ -72,7 +89,7 @@ impl Gesture {
     fn released_at(&mut self, position: (f64, f64), windows: &[Area]) {
         self.cursor = Some(position);
         match released(self.selection(), windows, position) {
-            Some(area) => self.result = Some(Some(area)),
+            Some(area) => self.result = Some(Outcome::Selected(area)),
             None => self.drag_start = None,
         }
     }

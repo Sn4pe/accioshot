@@ -51,7 +51,7 @@ fn state_path() -> Option<PathBuf> {
 #[tauri::command]
 pub fn save(request: Request, paths: State<Paths>, app: AppHandle) -> Result<(), String> {
     // A copy that failed halfway leaves its marker, and this save must still reach the disk.
-    let _ = std::fs::remove_file(paths.output.with_extension(COPY_ONLY_EXTENSION));
+    std::fs::remove_file(paths.output.with_extension(COPY_ONLY_EXTENSION)).ok();
     write_output(&request, &paths.output)?;
     app.exit(0);
     Ok(())

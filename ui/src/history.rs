@@ -350,7 +350,7 @@ pub fn delete_entries(
             if let Ok(file) = std::fs::metadata(path)
                 && let Some(cached) = thumbnail_path(path, &file, size)
             {
-                let _ = std::fs::remove_file(cached);
+                std::fs::remove_file(cached).ok();
             }
             if delete_file {
                 match std::fs::remove_file(path) {
@@ -390,7 +390,7 @@ mod tests {
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("accioshot-ui-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::remove_dir_all(&dir).ok();
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }

@@ -89,11 +89,8 @@ impl Parser<'_> {
     }
 
     fn call(&self, name: &str, parameters: &[String]) -> Result<String> {
-        let required = |count: usize| -> Result<()> {
-            if parameters.len() < count {
-                return Err(format!("{{{name}}} needs at least {count} parameter(s)").into());
-            }
-            Ok(())
+        let missing = |count: usize| -> Box<dyn std::error::Error> {
+            format!("{{{name}}} needs at least {count} parameter(s)").into()
         };
         match name.to_ascii_lowercase().as_str() {
             "" => Err("function name cannot be empty".into()),
@@ -101,42 +98,40 @@ impl Parser<'_> {
             "filename" => Ok(self.file_name.to_string()),
             // Only text uploads have an input, a capture never does.
             "input" => Ok(String::new()),
-            "base64" => {
-                required(1)?;
-                Ok(base64(parameters[0].as_bytes()))
-            }
-            "random" => {
-                required(2)?;
-                let nanos = SystemTime::now().duration_since(UNIX_EPOCH)?.subsec_nanos();
-                Ok(parameters[nanos as usize % parameters.len()].clone())
-            }
+            "base64" => match parameters {
+                [text, ..] => Ok(base64(text.as_bytes())),
+                [] => Err(missing(1)),
+            },
+            "random" => match parameters {
+                [_, _, ..] => {
+                    let nanos = SystemTime::now().duration_since(UNIX_EPOCH)?.subsec_nanos();
+                    Ok(parameters[nanos as usize % parameters.len()].clone())
+                }
+                _ => Err(missing(2)),
+            },
             "response" => Ok(self.response()?.text.clone()),
             "responseurl" => Ok(self.response()?.url.clone()),
-            "header" => {
-                required(1)?;
-                let value = self.response()?.headers.get(&parameters[0]);
-                Ok(value
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("")
-                    .to_string())
-            }
-            "json" => {
-                required(1)?;
-                match parameters {
-                    [input, path, ..] => json(input, path),
-                    [path] => json(&self.response()?.text, path),
-                    [] => unreachable!(),
+            "header" => match parameters {
+                [header, ..] => {
+                    let value = self.response()?.headers.get(header);
+                    Ok(value
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("")
+                        .to_string())
                 }
-            }
-            "regex" => {
-                required(1)?;
-                match parameters {
-                    [input, pattern, group, ..] => regex(input, pattern, group),
-                    [pattern, group] => regex(&self.response()?.text, pattern, group),
-                    [pattern] => regex(&self.response()?.text, pattern, ""),
-                    [] => unreachable!(),
-                }
-            }
+                [] => Err(missing(1)),
+            },
+            "json" => match parameters {
+                [input, path, ..] => json(input, path),
+                [path] => json(&self.response()?.text, path),
+                [] => Err(missing(1)),
+            },
+            "regex" => match parameters {
+                [input, pattern, group, ..] => regex(input, pattern, group),
+                [pattern, group] => regex(&self.response()?.text, pattern, group),
+                [pattern] => regex(&self.response()?.text, pattern, ""),
+                [] => Err(missing(1)),
+            },
             "xml" | "inputbox" | "prompt" | "outputbox" | "select" => {
                 Err(format!("{{{name}}} is not supported yet").into())
             }
@@ -218,16 +213,14 @@ fn regex(input: &str, pattern: &str, group: &str) -> Result<String> {
 }
 
 pub fn url_encode(text: &str) -> String {
-    let mut output = String::new();
-    for byte in text.bytes() {
-        match byte {
+    text.bytes()
+        .map(|byte| match byte {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                output.push(byte as char)
+                char::from(byte).to_string()
             }
-            _ => output.push_str(&format!("%{byte:02X}")),
-        }
-    }
-    output
+            _ => format!("%{byte:02X}"),
+        })
+        .collect()
 }
 
 fn base64(bytes: &[u8]) -> String {

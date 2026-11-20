@@ -133,7 +133,7 @@ pub fn select(
             return Err(failure.into());
         }
         if let Some(result) = overlay.gesture.result.take() {
-            return Ok(result.map(|area| (area, overlay.layout.clone())));
+            return Ok(result.selected().map(|area| (area, overlay.layout.clone())));
         }
     }
 }
@@ -292,7 +292,7 @@ impl OutputHandler for Overlay {
 
 impl LayerShellHandler for Overlay {
     fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &LayerSurface) {
-        self.gesture.result = Some(None);
+        self.gesture.cancel();
     }
 
     fn configure(
@@ -397,7 +397,7 @@ impl KeyboardHandler for Overlay {
         event: KeyEvent,
     ) {
         if event.keysym == Keysym::Escape {
-            self.gesture.result = Some(None);
+            self.gesture.cancel();
         }
     }
 
@@ -464,7 +464,7 @@ impl PointerHandler for Overlay {
                 PointerEventKind::Press {
                     button: BTN_RIGHT, ..
                 } => {
-                    self.gesture.result = Some(None);
+                    self.gesture.cancel();
                 }
                 PointerEventKind::Release {
                     button: BTN_LEFT, ..

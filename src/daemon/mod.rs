@@ -115,7 +115,7 @@ fn spawn_ui(exe: &Path, window: &'static str) {
     let pid = child.id();
     open.push((window, pid));
     std::thread::spawn(move || {
-        let _ = child.wait();
+        child.wait().ok();
         OPEN_WINDOWS
             .lock()
             .unwrap_or_else(|error| error.into_inner())

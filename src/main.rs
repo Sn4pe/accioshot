@@ -132,8 +132,9 @@ fn notify_failure(message: &str) {
         && let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
+        && let Err(error) = runtime.block_on(notify::send("Capture failed", message, None))
     {
-        let _ = runtime.block_on(notify::send("Capture failed", message, None));
+        eprintln!("accioshot: cannot show the notification: {error}");
     }
 }
 

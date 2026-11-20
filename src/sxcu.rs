@@ -254,13 +254,14 @@ async fn read_text(mut response: reqwest::Response) -> Result<String> {
 /// reqwest errors include the URL, and request URLs often hold API keys.
 fn describe(error: reqwest::Error) -> Box<dyn Error> {
     let error = error.without_url();
-    let mut message = format!("upload failed: {error}");
-    let mut source = error.source();
-    while let Some(cause) = source {
-        message.push_str(&format!(": {cause}"));
-        source = cause.source();
-    }
-    message.into()
+    let causes: Vec<String> = std::iter::successors(error.source(), |&cause| cause.source())
+        .map(ToString::to_string)
+        .collect();
+    format!(
+        "upload failed: {}",
+        [vec![error.to_string()], causes].concat().join(": ")
+    )
+    .into()
 }
 
 fn migrate_old_syntax(input: &str) -> String {

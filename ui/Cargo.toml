@@ -6,6 +6,9 @@ license = "GPL-3.0-or-later"
 description = "Editor, history and settings windows for accioshot"
 repository = "https://github.com/Sn4pe/accioshot"
 
+[lints]
+workspace = true
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

@@ -73,7 +73,7 @@ fn remove_from(path: &Path, entries: &[Entry]) -> Result<bool> {
         return Ok(false);
     }
     let temporary = path.with_extension("partial");
-    let _ = std::fs::remove_file(&temporary);
+    std::fs::remove_file(&temporary).ok();
     // 0600: deletion URLs let anyone remove the upload.
     OpenOptions::new()
         .create_new(true)
@@ -118,7 +118,7 @@ mod tests {
 
     fn temp_file(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("accioshot-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::remove_dir_all(&dir).ok();
         dir.join("history.jsonl")
     }
 
@@ -176,7 +176,7 @@ mod tests {
             })
         };
         for index in 0..100 {
-            let _ = remove_from(&file, &[entry(&format!("x{index}"))]);
+            remove_from(&file, &[entry(&format!("x{index}"))]).ok();
         }
         remove_from(&file, &[entry("gone")]).unwrap();
         writer.join().unwrap();

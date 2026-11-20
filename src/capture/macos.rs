@@ -107,7 +107,7 @@ fn in_temporary_dir(capture: impl FnOnce(&Path) -> Result<Vec<u8>>) -> Result<Ve
     }
     let dir = temporary_dir()?;
     let result = capture(&dir);
-    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::remove_dir_all(&dir).ok();
     result
 }
 
@@ -115,7 +115,7 @@ fn in_temporary_dir(capture: impl FnOnce(&Path) -> Result<Vec<u8>>) -> Result<Ve
 fn temporary_dir() -> Result<PathBuf> {
     let dir = std::env::temp_dir().join(format!("accioshot-capture-{}", std::process::id()));
     // A killed run with this same pid leaves its directory behind.
-    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::remove_dir_all(&dir).ok();
     DirBuilder::new().mode(0o700).create(&dir)?;
     Ok(dir)
 }

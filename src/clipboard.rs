@@ -40,8 +40,8 @@ mod platform {
                         libc::dup2(dev_null.as_raw_fd(), fd);
                     }
                 }
-                let _ = std::env::set_current_dir("/");
-                let _ = prepared.serve();
+                std::env::set_current_dir("/").ok();
+                prepared.serve().ok();
                 unsafe { libc::_exit(0) }
             }
             _ => Ok(()),
@@ -79,7 +79,7 @@ mod platform {
         let path =
             std::env::temp_dir().join(format!("accioshot-clipboard-{}.png", std::process::id()));
         // A killed run with this same pid leaves its file behind.
-        let _ = std::fs::remove_file(&path);
+        std::fs::remove_file(&path).ok();
         // 0600: this is a screenshot, it may hold anything.
         OpenOptions::new()
             .write(true)
@@ -99,7 +99,7 @@ mod platform {
             ])
             .arg(&path)
             .output();
-        let _ = std::fs::remove_file(&path);
+        std::fs::remove_file(&path).ok();
         let output = output?;
         if !output.status.success() {
             let error = String::from_utf8_lossy(&output.stderr);

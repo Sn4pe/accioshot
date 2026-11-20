@@ -11,6 +11,7 @@ use std::ffi::OsString;
 #[cfg(target_os = "linux")]
 use std::path::Path;
 use std::path::PathBuf;
+use std::process::ExitCode;
 use std::time::Duration;
 
 use accioshot::config::Config;
@@ -95,31 +96,38 @@ fn show_floating(window: WebviewWindow, size: LogicalSize<u32>) -> tauri::Result
     window.show()?;
     std::thread::spawn(move || {
         std::thread::sleep(FLOAT_SETTLE);
-        let _ = window.set_min_size(None::<LogicalSize<u32>>);
-        let _ = window.set_max_size(None::<LogicalSize<u32>>);
+        let resizable = window
+            .set_min_size(None::<LogicalSize<u32>>)
+            .and_then(|()| window.set_max_size(None::<LogicalSize<u32>>));
+        if let Err(error) = resizable {
+            eprintln!("accioshot-ui: {error}");
+        }
     });
     Ok(())
 }
 
-fn fail(error: impl std::fmt::Display) -> ! {
+fn fail(error: impl std::fmt::Display) -> ExitCode {
     eprintln!("accioshot-ui: {error}");
-    std::process::exit(1);
+    ExitCode::FAILURE
 }
 
-fn main() {
+fn main() -> ExitCode {
     #[cfg(target_os = "linux")]
     work_around_nvidia();
 
     let Some(mode) = Mode::parse(std::env::args_os().skip(1)) else {
         eprintln!("{USAGE}");
-        std::process::exit(2);
+        return ExitCode::from(2);
     };
 
     let mut builder = tauri::Builder::default().manage(WindowName(mode.name()));
     let (title, (width, height), floating) =
         match mode {
             Mode::Edit(paths) => {
-                let settings = Settings::load().unwrap_or_else(|error| fail(error));
+                let settings = match Settings::load() {
+                    Ok(settings) => settings,
+                    Err(error) => return fail(error),
+                };
                 let window = (settings.width, settings.height, settings.floating);
                 builder = builder.manage(paths).manage(settings).invoke_handler(
                     tauri::generate_handler![
@@ -185,7 +193,9 @@ fn main() {
                 let window = window.clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(Duration::from_millis(800));
-                    let _ = window.eval(script);
+                    if let Err(error) = window.eval(script) {
+                        eprintln!("accioshot-ui: {error}");
+                    }
                 });
             }
             if floating {
@@ -202,8 +212,9 @@ fn main() {
         })
         .run(tauri::generate_context!());
 
-    if let Err(error) = result {
-        fail(error);
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => fail(error),
     }
 }
 
