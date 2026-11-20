@@ -112,9 +112,7 @@ struct LastRegion {
 
 impl LastRegion {
     fn path() -> Option<PathBuf> {
-        // macOS has no state directory.
-        let dir = dirs::state_dir().or_else(dirs::data_dir)?;
-        Some(dir.join("accioshot/last-region.json"))
+        Some(accioshot::state_dir()?.join("last-region.json"))
     }
 
     fn load() -> Option<LastRegion> {

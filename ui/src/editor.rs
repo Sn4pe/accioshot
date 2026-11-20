@@ -41,9 +41,7 @@ pub fn save_state(state: Value) -> Result<(), String> {
 }
 
 fn state_path() -> Option<PathBuf> {
-    // macOS has no state directory.
-    let dir = dirs::state_dir().or_else(dirs::data_dir)?;
-    Some(dir.join("accioshot/editor.json"))
+    Some(accioshot::state_dir()?.join("editor.json"))
 }
 
 /// Takes raw bytes, JSON would make a large image many times bigger.

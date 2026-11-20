@@ -23,6 +23,10 @@ pub const OPENER: &str = if cfg!(target_os = "macos") {
 pub const UI_BINARY: &str = "accioshot-ui";
 pub const COPY_ONLY_EXTENSION: &str = "copy-only";
 
+pub fn state_dir() -> Option<PathBuf> {
+    Some(dirs::state_dir().or_else(dirs::data_dir)?.join("accioshot"))
+}
+
 pub fn sibling_binary(name: &str) -> PathBuf {
     std::env::current_exe()
         .ok()

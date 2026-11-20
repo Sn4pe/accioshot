@@ -155,24 +155,30 @@ impl Default for Config {
 }
 
 /// `~/.config` on macOS too, so the same files work on both systems.
-pub fn base_dir() -> Option<PathBuf> {
-    match cfg!(target_os = "macos") {
+fn dir() -> Result<PathBuf> {
+    let base = match cfg!(target_os = "macos") {
         true => dirs::home_dir().map(|home| home.join(".config")),
         false => dirs::config_dir(),
-    }
+    };
+    Ok(base
+        .ok_or("cannot find the config directory")?
+        .join("accioshot"))
 }
 
 pub fn path() -> Result<PathBuf> {
-    let dir = base_dir().ok_or("cannot find the config directory")?;
-    Ok(dir.join("accioshot/config.toml"))
+    Ok(dir()?.join("config.toml"))
+}
+
+pub fn uploaders_dir() -> Result<PathBuf> {
+    Ok(dir()?.join("uploaders"))
 }
 
 /// Only the names: `.sxcu` files can hold API keys.
 pub fn uploader_names() -> Vec<String> {
-    let Some(dir) = base_dir() else {
+    let Ok(dir) = uploaders_dir() else {
         return Vec::new();
     };
-    let Ok(files) = std::fs::read_dir(dir.join("accioshot/uploaders")) else {
+    let Ok(files) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
     let mut names: Vec<String> = files

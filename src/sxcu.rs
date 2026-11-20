@@ -69,10 +69,7 @@ fn resolve(name: &str) -> Result<PathBuf> {
     if name.contains('/') || name.ends_with(".sxcu") {
         return Ok(Path::new(name).to_path_buf());
     }
-    let config = crate::config::base_dir().ok_or("cannot find the config directory")?;
-    Ok(config
-        .join("accioshot/uploaders")
-        .join(format!("{name}.sxcu")))
+    Ok(crate::config::uploaders_dir()?.join(format!("{name}.sxcu")))
 }
 
 fn parse(text: &str) -> Result<Uploader> {
