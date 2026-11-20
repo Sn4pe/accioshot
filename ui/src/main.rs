@@ -167,6 +167,21 @@ fn main() -> ExitCode {
             }
         };
 
+    #[cfg(debug_assertions)]
+    if let Some(path) = std::env::var_os("ACCIOSHOT_UI_TEST") {
+        let script = match std::fs::read_to_string(path) {
+            Ok(script) => script,
+            Err(error) => return fail(error),
+        };
+        builder = builder.on_page_load(move |webview, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Finished
+                && let Err(error) = webview.eval(script.as_str())
+            {
+                eprintln!("accioshot-ui: {error}");
+            }
+        });
+    }
+
     let result = builder
         .setup(move |app| {
             #[cfg(target_os = "linux")]
@@ -176,17 +191,6 @@ fn main() -> ExitCode {
             window.set_title(title)?;
             window.set_background_color(Some(theme::background(&window)))?;
             window.set_size(size)?;
-            #[cfg(debug_assertions)]
-            if let Some(path) = std::env::var_os("ACCIOSHOT_UI_TEST") {
-                let script = std::fs::read_to_string(path)?;
-                let window = window.clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(Duration::from_millis(800));
-                    if let Err(error) = window.eval(script) {
-                        eprintln!("accioshot-ui: {error}");
-                    }
-                });
-            }
             if floating {
                 show_floating(window, size)?;
             } else {
