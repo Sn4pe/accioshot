@@ -125,9 +125,8 @@ impl Uploader {
 
     fn request_url(&self, file_name: &str) -> Result<Url> {
         let url = Parser {
-            file_name,
-            url_encode: true,
-            ..Default::default()
+            encode_file_name: true,
+            ..Parser::new(file_name)
         }
         .parse(&self.request_url)?;
         let url = if url.contains("://") {
@@ -139,10 +138,7 @@ impl Uploader {
         if !matches!(url.scheme(), "http" | "https") {
             return Err(format!("unsupported URL scheme: {}", url.scheme()).into());
         }
-        let parser = Parser {
-            file_name,
-            ..Default::default()
-        };
+        let parser = Parser::new(file_name);
         for (key, value) in &self.parameters {
             url.query_pairs_mut()
                 .append_pair(key, &parser.parse(value)?);
@@ -151,10 +147,7 @@ impl Uploader {
     }
 
     fn header_map(&self, file_name: &str) -> Result<HeaderMap> {
-        let parser = Parser {
-            file_name,
-            ..Default::default()
-        };
+        let parser = Parser::new(file_name);
         let mut map = HeaderMap::new();
         for (key, value) in &self.headers {
             let name = HeaderName::try_from(key.as_str())
@@ -174,10 +167,7 @@ impl Uploader {
     }
 
     fn form(&self, png: Vec<u8>, file_name: &str) -> Result<Form> {
-        let parser = Parser {
-            file_name,
-            ..Default::default()
-        };
+        let parser = Parser::new(file_name);
         let mut form = Form::new();
         for (key, value) in &self.arguments {
             form = form.text(key.clone(), parser.parse(value)?);
@@ -192,7 +182,7 @@ impl Uploader {
         let parser = Parser {
             file_name,
             response: Some(response),
-            url_encode: true,
+            encode_file_name: true,
         };
         if !(200..300).contains(&status) {
             let detail = parser.parse(&self.error_message).unwrap_or_default();

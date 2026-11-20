@@ -24,11 +24,17 @@ pub struct Response {
 pub struct Parser<'a> {
     pub file_name: &'a str,
     pub response: Option<&'a Response>,
-    /// Only URL encodes the file name.
-    pub url_encode: bool,
+    pub encode_file_name: bool,
 }
 
-impl Parser<'_> {
+impl<'a> Parser<'a> {
+    pub fn new(file_name: &'a str) -> Parser<'a> {
+        Parser {
+            file_name,
+            ..Default::default()
+        }
+    }
+
     pub fn parse(&self, text: &str) -> Result<String> {
         let chars: Vec<char> = text.chars().collect();
         Ok(self.parse_from(&chars, false, 0, 0)?.0)
@@ -94,7 +100,7 @@ impl Parser<'_> {
         };
         match name.to_ascii_lowercase().as_str() {
             "" => Err("function name cannot be empty".into()),
-            "filename" if self.url_encode => Ok(url_encode(self.file_name)),
+            "filename" if self.encode_file_name => Ok(url_encode(self.file_name)),
             "filename" => Ok(self.file_name.to_string()),
             // Only text uploads have an input, a capture never does.
             "input" => Ok(String::new()),
@@ -256,7 +262,7 @@ mod tests {
         Parser {
             file_name: "a b.png",
             response: Some(&response),
-            url_encode: true,
+            encode_file_name: true,
         }
         .parse(template)
     }
