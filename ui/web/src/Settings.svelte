@@ -26,7 +26,6 @@
   let busy = $state(false)
 
   const dirty = $derived(config !== null && JSON.stringify(config) !== saved)
-  /** A name in the file that has no .sxcu here must not vanish from the list. */
   const uploaderChoices = $derived(
     config?.uploader && !uploaders.includes(config.uploader) ? [config.uploader, ...uploaders] : uploaders,
   )
@@ -376,7 +375,6 @@
     width: 110px;
     font-variant-numeric: tabular-nums;
   }
-  /* GTK draws its own control otherwise, and this text can vanish on it. */
   select {
     width: 240px;
     appearance: none;
@@ -384,7 +382,6 @@
     padding-right: 28px;
     background: var(--bar) var(--caret) no-repeat right 10px center;
   }
-  /* GTK's own follow its theme and not this one, and can read backwards. */
   input[type='checkbox'] {
     appearance: none;
     -webkit-appearance: none;

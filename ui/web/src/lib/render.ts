@@ -20,7 +20,6 @@ export function imageRect(image: { width: number; height: number }): Rect {
   return { x: 0, y: 0, width: image.width, height: image.height }
 }
 
-/** What the canvas shows: the crop if there is one, otherwise the whole image. */
 export function viewRect(doc: Doc, image: { width: number; height: number }): Rect {
   return doc.crop ?? imageRect(image)
 }
@@ -46,7 +45,6 @@ export function measureText(text: string, size: number, family: string) {
   return { width, height: lines.length * size * LINE_HEIGHT }
 }
 
-/** Dark text on light fills and the reverse, by perceived brightness. */
 export function contrastingInk(color: string) {
   const value = parseInt(color.slice(1, 7), 16)
   const luminance = 0.299 * ((value >> 16) & 255) + 0.587 * ((value >> 8) & 255) + 0.114 * (value & 255)
@@ -59,7 +57,6 @@ function drawArrow(ctx: CanvasRenderingContext2D, shape: Shape) {
   const length = Math.hypot(b.x - a.x, b.y - a.y)
   const head = Math.min(Math.max(size * ARROW_HEAD_LENGTH, ARROW_HEAD_MIN), length)
   const spread = Math.PI / 7
-  // The shaft stops inside the head, or its round cap would poke through the tip.
   const stop = length - head * 0.7
   ctx.beginPath()
   ctx.moveTo(a.x, a.y)
@@ -107,10 +104,6 @@ function drawPixelate(ctx: CanvasRenderingContext2D, shape: Shape, view: Rect) {
   ctx.restore()
 }
 
-/**
- * Scales down in halves and back up the same way. WebKit has no canvas `filter`, so no blur() here.
- * Going past the strength matters: it has to erase detail, this is often hiding something.
- */
 function drawBlur(ctx: CanvasRenderingContext2D, shape: Shape, view: Rect) {
   const area = effectArea(ctx, shape, view)
   if (!area) return
@@ -141,7 +134,6 @@ function drawBlur(ctx: CanvasRenderingContext2D, shape: Shape, view: Rect) {
 
 function drawText(ctx: CanvasRenderingContext2D, text: Text) {
   ctx.font = fontOf(text.size, text.font)
-  // Middle of each line box, like CSS, so the text does not jump when the inline editor closes.
   ctx.textBaseline = 'middle'
   ctx.textAlign = 'left'
   text.text.split('\n').forEach((line, i) => {
@@ -193,7 +185,6 @@ export function drawAnnotation(ctx: CanvasRenderingContext2D, annotation: Annota
     case 'Freehand':
       ctx.beginPath()
       annotation.points.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)))
-      // A single click leaves one point, which only draws with a segment.
       if (annotation.points.length === 1) ctx.lineTo(annotation.points[0].x + 0.01, annotation.points[0].y)
       ctx.stroke()
       break
@@ -209,7 +200,6 @@ export function drawAnnotation(ctx: CanvasRenderingContext2D, annotation: Annota
       ctx.font = `600 ${annotation.size * 0.56}px sans-serif`
       ctx.textAlign = 'center'
       ctx.textBaseline = 'alphabetic'
-      // Centered on the digit's real box, textBaseline middle sits visibly high.
       const metrics = ctx.measureText(number)
       const offset = (metrics.actualBoundingBoxAscent - metrics.actualBoundingBoxDescent) / 2
       ctx.fillText(number, annotation.at.x, annotation.at.y + offset)
@@ -235,10 +225,6 @@ export function renderDoc(
   for (const annotation of draftDoc.annotations) drawAnnotation(ctx, annotation, draftDoc, view)
 }
 
-/**
- * Selection marks, in image pixels but sized for the current zoom. Not part of the export.
- * Part of a multiple selection, shapes get a box instead of their handles.
- */
 export function renderSelection(
   ctx: CanvasRenderingContext2D,
   annotation: Annotation,
@@ -267,7 +253,6 @@ export function renderSelection(
   ctx.restore()
 }
 
-/** Light dashes over a dark line, so the box shows on any image. */
 export function dashedRect(ctx: CanvasRenderingContext2D, r: Rect, pixel: number) {
   ctx.save()
   ctx.lineWidth = pixel
@@ -279,7 +264,6 @@ export function dashedRect(ctx: CanvasRenderingContext2D, r: Rect, pixel: number
   ctx.restore()
 }
 
-// For Blur and Pixelate the size is a strength, not a line around the box.
 const STROKED: readonly string[] = ['Rectangle', 'Ellipse', 'Line', 'Arrow']
 
 function padded(r: Rect, margin: number): Rect {

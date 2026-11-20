@@ -46,12 +46,10 @@ export const DEFAULT_KEYS: Record<Action, string> = {
   save: 'ctrl+s',
   copy: 'ctrl+c',
   discard: 'escape',
-  // A US layout sends + with Shift, a Spanish one without.
   zoom_in: 'ctrl++, ctrl+shift++, ctrl+=',
   zoom_out: 'ctrl+-',
   zoom_fit: 'ctrl+0',
   zoom_actual: 'ctrl+1',
-  // Held down, the left button drags the view.
   pan: 'space',
   move_left: 'arrowleft, shift+arrowleft',
   move_right: 'arrowright, shift+arrowright',
@@ -59,7 +57,6 @@ export const DEFAULT_KEYS: Record<Action, string> = {
   move_down: 'arrowdown, shift+arrowdown',
   duplicate: 'ctrl+d',
   select_all: 'ctrl+a',
-  // Page and Home/End like Inkscape, [ and ] need AltGr on many layouts.
   bring_forward: 'pageup',
   send_backward: 'pagedown',
   bring_to_front: 'home',
@@ -68,7 +65,6 @@ export const DEFAULT_KEYS: Record<Action, string> = {
 
 export function normalizeCombo(combo: string): string {
   const lower = combo.toLowerCase().trim()
-  // The + key itself, as in ctrl++.
   const plus = lower === '+' || lower.endsWith('++')
   const parts = (plus ? lower.slice(0, -1) : lower).split('+').map((part) => part.trim())
   const last = parts.pop() ?? ''
@@ -86,7 +82,6 @@ export function eventCombo(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaK
   return parts.join('+')
 }
 
-/** Combination to action, with the user's keys over the defaults. Commas separate alternatives. */
 export function keymap(custom: Record<string, string>): Map<string, Action> {
   const unknown = Object.keys(custom).find((name) => !isAction(name))
   if (unknown !== undefined) throw new Error(`[editor.keys] has an unknown action: ${unknown}`)

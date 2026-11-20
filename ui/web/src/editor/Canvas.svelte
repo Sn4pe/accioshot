@@ -254,11 +254,9 @@
   }
 
   function onPointerDown(event: PointerEvent & StageEvent) {
-    // A second button mid-drag would leave the first gesture's draft or preview behind.
     if (gesture) return
     nudged = null
     if (event.button === 1 || (event.button === 0 && panKey)) {
-      // Also keeps the focus where it is, so a text being edited stays open.
       event.preventDefault()
       event.currentTarget.setPointerCapture(event.pointerId)
       gesture = { kind: 'pan', start: { x: event.clientX, y: event.clientY }, origin: at }
@@ -275,7 +273,6 @@
     const tolerance = 6 / scale
     event.currentTarget.setPointerCapture(event.pointerId)
 
-    // Text and Step tools place new ones, so their handles only answer to Select. Shift toggles instead.
     if (selected && !event.shiftKey && (tool === 'Select' || (tool !== 'Crop' && isShape(selected)))) {
       const handle = hitHandle(selected, p, tolerance + 2 / scale)
       if (handle) {
@@ -291,7 +288,6 @@
           else if (selectedIds.includes(target.id)) selectedIds = selectedIds.filter((id) => id !== target.id)
           else selectedIds = [...selectedIds, target.id]
         } else if (target) {
-          // Dragging one of several selected annotations moves them all.
           if (!selectedIds.includes(target.id)) selectedIds = [target.id]
           gesture = { kind: 'move', id: target.id, start: p }
         } else {
@@ -392,13 +388,11 @@
         break
       case 'move':
         if (preview) commit(preview)
-        // A click without a drag picks that one out of the selection.
         else selectedIds = [current.id]
         break
       case 'resize': {
         const resizedOne = preview?.annotations.find((a) => a.id === current.id)
         if (preview) commit(preview)
-        // The slider follows a step or text resized by its handle.
         if (resizedOne?.kind === 'Text' || resizedOne?.kind === 'Step') {
           styles = { ...styles, [resizedOne.kind]: { ...styleOf(resizedOne.kind), size: resizedOne.size } }
         }
@@ -557,15 +551,12 @@
   }
 
   function onKeyDown(event: KeyboardEvent) {
-    // The size slider keeps its arrow keys.
     if (event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement) return
     const action = keys.get(eventCombo(event))
     if (!action) return
-    // Space still presses a focused button.
     if (action === 'pan' && event.target instanceof HTMLButtonElement) return
     if (!(action in MOVES)) nudged = null
     event.preventDefault()
-    // Mid drag the gesture holds a copy of the document, only Esc may interrupt it.
     if (gesture && action !== 'discard') return
     perform(action, event)
   }
@@ -611,7 +602,6 @@
     const sheet = document.createElement('canvas')
     sheet.width = Math.round(view.width)
     sheet.height = Math.round(view.height)
-    // The text being edited lives in the textarea until it is committed.
     const hidden = editing?.id ?? null
     const visible =
       hidden === null ? shown : { ...shown, annotations: shown.annotations.filter((a) => a.id !== hidden) }
@@ -619,12 +609,10 @@
     return sheet
   })
 
-  // Panning and zooming only copy the sheet, the blur and pixelate effects are not redone.
   function paint(canvas: HTMLCanvasElement) {
     const ratio = devicePixelRatio.current ?? 1
     const width = Math.round(stageWidth * ratio)
     const height = Math.round(stageHeight * ratio)
-    // Setting the size reallocates the canvas, so not on every pan frame.
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width
       canvas.height = height
@@ -633,7 +621,6 @@
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.clearRect(0, 0, width, height)
     ctx.setTransform(scale * ratio, 0, 0, scale * ratio, -at.x * scale * ratio, -at.y * scale * ratio)
-    // Sharp pixels from 100 % up, to see exactly where a mark lands.
     ctx.imageSmoothingEnabled = scale < 1
     ctx.drawImage(sheet, view.x, view.y, view.width, view.height)
     ctx.imageSmoothingEnabled = true

@@ -31,7 +31,6 @@
     !entry.path ? 'Uploaded only' : !item.exists ? 'File is gone' : failed ? 'Cannot read this file' : '',
   )
 
-  /** A long history holds hundreds of big files, so only what scrolls into view gets decoded. */
   function whenVisible(node: HTMLElement) {
     const observer = new IntersectionObserver(
       (seen) => {

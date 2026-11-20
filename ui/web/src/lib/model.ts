@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Tool names are ShareX's EditorTool.
 
 export type Point = { x: number; y: number }
 export type Rect = { x: number; y: number; width: number; height: number }
@@ -107,7 +106,6 @@ export function hit(annotation: Annotation, p: Point, tolerance: number): boolea
   }
 }
 
-/** Topmost first, as drawn last is on top. */
 export function hitTop(annotations: Annotation[], p: Point, tolerance: number): Annotation | null {
   for (let i = annotations.length - 1; i >= 0; i--) {
     if (hit(annotations[i], p, tolerance)) return annotations[i]
@@ -131,7 +129,6 @@ export function translated(annotation: Annotation, dx: number, dy: number): Anno
 export type HandleId = 'a' | 'b' | 'ab' | 'ba'
 export type Handle = { id: HandleId; at: Point }
 
-/** Line-like shapes resize by their ends, the rest by their corners. Text scales from its bottom right. */
 export function handles(annotation: Annotation): Handle[] {
   if (annotation.kind === 'Text') {
     return [{ id: 'b', at: { x: annotation.at.x + annotation.width, y: annotation.at.y + annotation.height } }]
@@ -160,7 +157,6 @@ export function hitHandle(annotation: Annotation, p: Point, tolerance: number): 
   return handle?.id ?? null
 }
 
-/** Steps grow around their center and text from its corner, both within `limits`. */
 export function resized(annotation: Annotation, handle: HandleId, p: Point, limits: [number, number]): Annotation {
   const clamp = (size: number) => Math.min(Math.max(size, limits[0]), limits[1])
   if (annotation.kind === 'Step') {
@@ -188,7 +184,6 @@ function resizedShape(shape: Shape, handle: HandleId, p: Point): Shape {
   }
 }
 
-/** With Shift: squares for box shapes, 45 degree steps for lines. */
 export function constrained(kind: Tool, a: Point, b: Point): Point {
   const dx = b.x - a.x
   const dy = b.y - a.y
@@ -201,14 +196,12 @@ export function constrained(kind: Tool, a: Point, b: Point): Point {
   return { x: a.x + Math.sign(dx || 1) * side, y: a.y + Math.sign(dy || 1) * side }
 }
 
-/** Steps count in the order they were placed, so layers do not renumber them but deleting one does. */
 export function stepNumber(annotations: Annotation[], id: number): number {
   return annotations.filter((a) => a.kind === 'Step' && a.id <= id).length
 }
 
 export type Layer = 'bring_forward' | 'send_backward' | 'bring_to_front' | 'send_to_back'
 
-/** Moves the annotations in `ids` through the stack, keeping their order among themselves. */
 export function reordered(annotations: Annotation[], ids: number[], layer: Layer): Annotation[] {
   const picked = (a: Annotation) => ids.includes(a.id)
   const list = [...annotations]
@@ -230,7 +223,6 @@ export function reordered(annotations: Annotation[], ids: number[], layer: Layer
   }
 }
 
-/** Fully inside `rect`, like a selection box in a drawing program. */
 export function inside(annotation: Annotation, rect: Rect): boolean {
   const b = bounds(annotation)
   return (
