@@ -5,13 +5,13 @@
   import { onMount } from 'svelte'
   import { devicePixelRatio } from 'svelte/reactivity/window'
   import Glyph from './Glyph.svelte'
+  import { History } from './editor/history.svelte'
   import {
     clampRect,
     constrained,
     EMPTY_DOC,
     hitHandle,
     hitTop,
-    History,
     inside,
     isShape,
     rectBetween,
@@ -104,7 +104,6 @@
   let saving = $state(false)
   let confirmingDiscard = $state(false)
 
-  let doc = $state.raw<Doc>(EMPTY_DOC)
   let preview = $state.raw<Doc | null>(null)
   let draft = $state.raw<Annotation | null>(null)
   let cropDraft = $state.raw<Rect | null>(null)
@@ -114,8 +113,6 @@
   let tool = $state<Tool>('Arrow')
   let styles = $state<Partial<Record<Tool, Style>>>({})
   let cursor = $state('default')
-  let canUndo = $state(false)
-  let canRedo = $state(false)
 
   let gesture: Gesture | null = null
   let stageWidth = $state(0)
@@ -128,6 +125,7 @@
   // What the last arrow press moved, so a run of presses is one undo step.
   let nudged: string | null = null
 
+  const doc = $derived(history.doc)
   const shown = $derived(preview ?? doc)
   const size = $derived(image ? { width: image.width, height: image.height } : { width: 1, height: 1 })
   const view = $derived(viewRect(shown, size))
@@ -171,17 +169,10 @@
     return TOOLS.some((entry) => entry.tool === value)
   }
 
-  function syncHistory() {
-    doc = history.doc
-    canUndo = history.canUndo
-    canRedo = history.canRedo
-  }
-
   function commit(next: Doc) {
     history.commit(next)
     nudged = null
     preview = null
-    syncHistory()
   }
 
   function setAnnotation(source: Doc, annotation: Annotation): Doc {
@@ -236,7 +227,6 @@
     const key = selectedIds.join()
     if (nudged === key) {
       history.replace(next)
-      syncHistory()
     } else commit(next)
     nudged = key
   }
@@ -525,13 +515,11 @@
   function undo() {
     history.undo()
     nudged = null
-    syncHistory()
   }
 
   function redo() {
     history.redo()
     nudged = null
-    syncHistory()
   }
 
   /** Esc: drop what is in progress first, close only when nothing is. */
@@ -815,10 +803,22 @@
     </div>
 
     <div class="history">
-      <button class="tool" aria-label="Undo" title={'Undo' + shortcut('undo')} disabled={!canUndo} onclick={undo}>
+      <button
+        class="tool"
+        aria-label="Undo"
+        title={'Undo' + shortcut('undo')}
+        disabled={!history.canUndo}
+        onclick={undo}
+      >
         <Glyph name="undo" />
       </button>
-      <button class="tool" aria-label="Redo" title={'Redo' + shortcut('redo')} disabled={!canRedo} onclick={redo}>
+      <button
+        class="tool"
+        aria-label="Redo"
+        title={'Redo' + shortcut('redo')}
+        disabled={!history.canRedo}
+        onclick={redo}
+      >
         <Glyph name="redo" />
       </button>
       <button
