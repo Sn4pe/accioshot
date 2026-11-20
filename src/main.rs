@@ -359,7 +359,7 @@ fn open_url(url: &str) {
 /// Never overwrites: two captures in the same second get a numeric suffix.
 fn save(dir: &Path, file_name: &str, png: &[u8]) -> Result<PathBuf> {
     fs::create_dir_all(dir)?;
-    let stem = file_name.trim_end_matches(".png");
+    let stem = file_name.strip_suffix(".png").unwrap_or(file_name);
     for attempt in 0..1000 {
         let path = match attempt {
             0 => dir.join(file_name),
@@ -504,6 +504,15 @@ mod tests {
         assert_ne!(first, second);
         assert_eq!(fs::read(&first).unwrap(), b"first");
         assert_eq!(fs::read(&second).unwrap(), b"second");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn repeated_names_number_only_the_extension() {
+        let dir = std::env::temp_dir().join(format!("accioshot-suffix-{}", std::process::id()));
+        save(&dir, "a.png.png", b"first").unwrap();
+        let second = save(&dir, "a.png.png", b"second").unwrap();
+        assert_eq!(second.file_name().unwrap(), "a.png-1.png");
         fs::remove_dir_all(dir).unwrap();
     }
 }
