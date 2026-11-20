@@ -6,7 +6,7 @@
 //! stays text. The auto-increment tokens are left out, they need a persistent counter.
 
 use std::fs::File;
-use std::io::Read;
+use std::io::{self, Read};
 
 use chrono::{DateTime, Local};
 
@@ -40,14 +40,14 @@ pub fn needs_window(pattern: &str) -> bool {
     pattern.contains("%t") || pattern.contains("%pn")
 }
 
-pub fn file_name(pattern: &str, source: &Source) -> String {
-    let name = sanitize(&expand(pattern, source));
+pub fn file_name(pattern: &str, source: &Source) -> io::Result<String> {
+    let name = sanitize(&expand(pattern, source)?);
     let name = if name.is_empty() {
         FALLBACK_NAME
     } else {
         &name
     };
-    format!("{name}.png")
+    Ok(format!("{name}.png"))
 }
 
 /// Reads the size from the PNG header, the name does not justify decoding the image.
@@ -60,7 +60,7 @@ pub fn png_size(png: &[u8]) -> (u32, u32) {
     (number(16..20), number(20..24))
 }
 
-fn expand(pattern: &str, source: &Source) -> String {
+fn expand(pattern: &str, source: &Source) -> io::Result<String> {
     let twelve_hours = pattern.contains("%pm");
     let mut output = String::new();
     let mut rest = pattern;
@@ -74,19 +74,19 @@ fn expand(pattern: &str, source: &Source) -> String {
                     "rn" | "ra" | "rx" => {
                         let (length, after) = random_length(rest);
                         rest = after;
-                        output.push_str(&random_token(token, length));
+                        output.push_str(&random_token(token, length)?);
                     }
-                    _ => output.push_str(&value(token, source, twelve_hours)),
+                    _ => output.push_str(&value(token, source, twelve_hours)?),
                 }
             }
             None => output.push('%'),
         }
     }
     output.push_str(rest);
-    output
+    Ok(output)
 }
 
-fn value(token: &str, source: &Source, twelve_hours: bool) -> String {
+fn value(token: &str, source: &Source, twelve_hours: bool) -> io::Result<String> {
     let date = |format: &str| source.now.format(format).to_string();
     let window = |read: fn(&Window) -> &str| {
         source
@@ -97,7 +97,7 @@ fn value(token: &str, source: &Source, twelve_hours: bool) -> String {
         0 => String::new(),
         value => value.to_string(),
     };
-    match token {
+    Ok(match token {
         "y" => date("%Y"),
         "yy" => date("%y"),
         "mo" => date("%m"),
@@ -112,7 +112,7 @@ fn value(token: &str, source: &Source, twelve_hours: bool) -> String {
         "pm" => date("%p"),
         "wy" => date("%V"),
         "unix" => source.now.timestamp().to_string(),
-        "guid" => guid(),
+        "guid" => guid()?,
         "width" => dimension(source.width),
         "height" => dimension(source.height),
         "un" => std::env::var("USER").unwrap_or_default(),
@@ -122,7 +122,7 @@ fn value(token: &str, source: &Source, twelve_hours: bool) -> String {
         "t" => window(|window| &window.title),
         "pn" => window(|window| &window.process),
         _ => unreachable!("every token in TOKENS has a value"),
-    }
+    })
 }
 
 /// ShareX's `%ra{10}`: repeats a random token.
@@ -137,31 +137,27 @@ fn random_length(rest: &str) -> (usize, &str) {
     }
 }
 
-fn random_token(token: &str, length: usize) -> String {
+fn random_token(token: &str, length: usize) -> io::Result<String> {
     let alphabet = match token {
         "rn" => DIGITS,
         "ra" => ALPHANUMERIC,
         _ => HEXADECIMAL,
     };
-    random_bytes(length)
+    Ok(random_bytes(length)?
         .iter()
         .map(|byte| char::from(alphabet[usize::from(*byte) % alphabet.len()]))
-        .collect()
+        .collect())
 }
 
 /// shortcut: modulo is slightly biased and fine for names, these are not secrets.
-fn random_bytes(length: usize) -> Vec<u8> {
+fn random_bytes(length: usize) -> io::Result<Vec<u8>> {
     let mut bytes = vec![0; length];
-    let read = File::open("/dev/urandom").and_then(|mut file| file.read_exact(&mut bytes));
-    if read.is_err() {
-        // Still a usable name, the save step never overwrites.
-        bytes.fill(0);
-    }
-    bytes
+    File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+    Ok(bytes)
 }
 
-fn guid() -> String {
-    let mut bytes = random_bytes(16);
+fn guid() -> io::Result<String> {
+    let mut bytes = random_bytes(16)?;
     bytes[6] = bytes[6] & 0x0F | 0x40;
     bytes[8] = bytes[8] & 0x3F | 0x80;
     let hex = |range: std::ops::Range<usize>| -> String {
@@ -170,14 +166,14 @@ fn guid() -> String {
             .map(|byte| format!("{byte:02x}"))
             .collect()
     };
-    format!(
+    Ok(format!(
         "{}-{}-{}-{}-{}",
         hex(0..4),
         hex(4..6),
         hex(6..8),
         hex(8..10),
         hex(10..16)
-    )
+    ))
 }
 
 /// Same as ShareX's SanitizeInput, a title reads better without spaces.
@@ -218,7 +214,7 @@ mod tests {
     }
 
     fn name(pattern: &str) -> String {
-        file_name(pattern, &source(None))
+        file_name(pattern, &source(None)).unwrap()
     }
 
     #[test]
@@ -253,7 +249,7 @@ mod tests {
 
     #[test]
     fn guid_has_the_right_shape() {
-        let value = guid();
+        let value = guid().unwrap();
         assert_eq!(value.len(), 36);
         assert_eq!(&value[14..15], "4");
     }
@@ -264,9 +260,12 @@ mod tests {
             title: " ../../etc/passwd %y ".to_string(),
             process: "fire fox".to_string(),
         };
-        let title = file_name("%t", &source(Some(&window)));
+        let title = file_name("%t", &source(Some(&window))).unwrap();
         assert_eq!(title, "_.._etc_passwd_%y.png");
-        assert_eq!(file_name("%pn", &source(Some(&window))), "fire_fox.png");
+        assert_eq!(
+            file_name("%pn", &source(Some(&window))).unwrap(),
+            "fire_fox.png"
+        );
     }
 
     #[test]

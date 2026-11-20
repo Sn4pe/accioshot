@@ -245,16 +245,24 @@ fn run(args: CaptureArgs) -> Result<()> {
         names::file_name(&config.name_pattern, &source)
     };
     if actions.edit {
-        let edited = editor::edit(&config.editor.command, &png)
-            .map_err(|error| keep_capture(&config, &name_for(&png), &png, error.as_ref()))?
-            .ok_or(capture::CANCELLED)?;
+        let edited = match editor::edit(&config.editor.command, &png) {
+            Ok(edited) => edited.ok_or(capture::CANCELLED)?,
+            Err(error) => {
+                return Err(keep_capture(
+                    &config,
+                    &name_for(&png)?,
+                    &png,
+                    error.as_ref(),
+                ));
+            }
+        };
         png = edited.png;
         if edited.copy_only {
             actions = actions.only_copy();
             uploader = None;
         }
     }
-    let file_name = name_for(&png);
+    let file_name = name_for(&png)?;
 
     let saved = actions
         .save
