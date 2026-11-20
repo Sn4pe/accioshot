@@ -47,8 +47,6 @@ fn state_path() -> Option<PathBuf> {
 /// Takes raw bytes, JSON would make a large image many times bigger.
 #[tauri::command]
 pub fn save(request: Request, paths: State<Paths>, app: AppHandle) -> Result<(), String> {
-    // A copy that failed halfway leaves its marker, and this save must still reach the disk.
-    std::fs::remove_file(paths.output.with_extension(COPY_ONLY_EXTENSION)).ok();
     write_output(&request, &paths.output)?;
     app.exit(0);
     Ok(())
@@ -57,9 +55,12 @@ pub fn save(request: Request, paths: State<Paths>, app: AppHandle) -> Result<(),
 /// Same as save, the marker tells accioshot the image is only for the clipboard.
 #[tauri::command]
 pub fn copy(request: Request, paths: State<Paths>, app: AppHandle) -> Result<(), String> {
-    std::fs::write(paths.output.with_extension(COPY_ONLY_EXTENSION), "")
-        .map_err(|error| format!("cannot copy: {error}"))?;
-    write_output(&request, &paths.output)?;
+    let marker = paths.output.with_extension(COPY_ONLY_EXTENSION);
+    std::fs::write(&marker, "").map_err(|error| format!("cannot copy: {error}"))?;
+    if let Err(error) = write_output(&request, &paths.output) {
+        std::fs::remove_file(&marker).ok();
+        return Err(error);
+    }
     app.exit(0);
     Ok(())
 }
