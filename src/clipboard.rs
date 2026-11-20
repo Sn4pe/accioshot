@@ -79,22 +79,10 @@ mod platform {
         let dir = PrivateDir::new("accioshot-clipboard")?;
         let path = dir.path().join("capture.png");
         std::fs::write(&path, png)?;
-        let output = Command::new("osascript")
-            .env("LC_ALL", "en_US.UTF-8")
-            .args([
-                "-e",
-                "on run argv",
-                "-e",
-                "set the clipboard to (read (POSIX file (item 1 of argv)) as «class PNGf»)",
-                "-e",
-                "end run",
-            ])
-            .arg(&path)
-            .output()?;
-        if !output.status.success() {
-            let error = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("cannot copy the image: {}", error.trim()).into());
-        }
-        Ok(())
+        crate::notify::osascript(
+            "set the clipboard to (read (POSIX file (item 1 of argv)) as «class PNGf»)",
+            &[path.as_os_str()],
+        )
+        .map_err(|error| format!("cannot copy the image: {error}").into())
     }
 }
