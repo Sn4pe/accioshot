@@ -576,7 +576,7 @@
   }
 
   async function rememberState() {
-    if (settings?.remember_last) await invoke('save_state', { state: { tool, styles } }).catch(() => {})
+    if (settings?.remember_last) await invoke('save_state', { state: { tool, styles } }).catch((error: unknown) => console.error('save_state:', error))
   }
 
   async function finishDiscard() {
