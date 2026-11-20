@@ -44,6 +44,17 @@ impl Library {
         }
     }
 
+    fn split_known(&self, entries: Vec<Entry>) -> (Vec<Entry>, Vec<String>) {
+        let (known, stale): (Vec<Entry>, Vec<Entry>) = entries
+            .into_iter()
+            .partition(|entry| self.check(entry).is_ok());
+        let failures = stale
+            .iter()
+            .map(|entry| format!("{} is no longer in the history", label(entry)))
+            .collect();
+        (known, failures)
+    }
+
     pub fn holds_files(&self, files: &[PathBuf]) -> bool {
         let Ok(entries) = self.entries.lock() else {
             return false;
@@ -54,6 +65,15 @@ impl Library {
                 .any(|entry| entry.path.as_ref() == Some(file))
         })
     }
+}
+
+fn label(entry: &Entry) -> String {
+    entry
+        .path
+        .as_ref()
+        .map(|path| path.display().to_string())
+        .or_else(|| entry.url.clone())
+        .unwrap_or_else(|| entry.time.clone())
 }
 
 #[derive(Serialize)]
@@ -319,14 +339,11 @@ pub fn delete_entries(
     delete_file: bool,
     library: State<Library>,
 ) -> Result<Vec<String>, String> {
-    for entry in &entries {
-        library.check(entry)?;
-    }
+    let (entries, mut failures) = library.split_known(entries);
     let size = (
         library.config.thumbnail_width,
         library.config.thumbnail_height,
     );
-    let mut failures = Vec::new();
     let mut removable = Vec::new();
     for entry in entries {
         if let Some(path) = entry.path.as_deref() {
@@ -347,7 +364,9 @@ pub fn delete_entries(
         }
         removable.push(entry);
     }
-    history::remove(&removable).map_err(|error| error.to_string())?;
+    if !removable.is_empty() {
+        history::remove(&removable).map_err(|error| error.to_string())?;
+    }
     library
         .entries
         .lock()
@@ -402,6 +421,17 @@ mod tests {
                 .check(&entry(Some("/etc/passwd".into()), None))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn stale_entries_fail_alone() {
+        let library = Library::new(HistoryConfig::default());
+        let known = entry(None, Some("https://x"));
+        library.entries.lock().unwrap().push(known.clone());
+        let stale = entry(Some("/shots/gone.png".into()), None);
+        let (entries, failures) = library.split_known(vec![stale, known.clone()]);
+        assert_eq!(entries, [known]);
+        assert_eq!(failures, ["/shots/gone.png is no longer in the history"]);
     }
 
     #[test]
