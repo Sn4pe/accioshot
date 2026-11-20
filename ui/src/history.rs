@@ -157,9 +157,7 @@ fn store(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         // 0700: these are small copies of screenshots, they may hold anything.
         DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
     }
-    let temporary = path.with_extension(format!("{}.partial", std::process::id()));
-    std::fs::write(&temporary, bytes)?;
-    std::fs::rename(temporary, path)
+    accioshot::fs::write_atomically(path, bytes, 0o600)
 }
 
 #[tauri::command(async)]
