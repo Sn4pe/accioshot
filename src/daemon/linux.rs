@@ -101,7 +101,7 @@ impl ksni::Tray for Tray {
             menu.push(
                 StandardItem {
                     label: label.into(),
-                    activate: Box::new(move |tray: &mut Self| spawn_ui(&tray.exe, window)),
+                    activate: Box::new(move |_: &mut Self| spawn_ui(window)),
                     ..Default::default()
                 }
                 .into(),

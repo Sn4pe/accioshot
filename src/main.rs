@@ -13,10 +13,9 @@ use std::error::Error;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::time::Duration;
 
-use accioshot::{OPENER, Result, config, editor, history};
+use accioshot::{Result, config, editor, history};
 use clap::{Args, Parser, Subcommand};
 
 use config::{AfterCapture, AfterUpload, Config};
@@ -357,18 +356,12 @@ fn remember(time: &str, saved: Option<&Path>, uploaded: Option<&sxcu::Uploaded>)
 
 /// The URL comes from a remote server, so only web links get opened.
 fn open_url(url: &str) {
-    if !(url.starts_with("https://") || url.starts_with("http://")) {
+    if !accioshot::is_web_url(url) {
         eprintln!("accioshot: not opening a non-web URL: {url}");
         return;
     }
-    let spawned = std::process::Command::new(OPENER)
-        .arg(url)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn();
-    if let Err(error) = spawned {
-        eprintln!("accioshot: cannot run {OPENER}: {error}");
+    if let Err(error) = accioshot::open(url.as_ref()) {
+        eprintln!("accioshot: {error}");
     }
 }
 

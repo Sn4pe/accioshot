@@ -35,5 +35,5 @@ pub fn open_config() -> Result<(), String> {
         }
         std::fs::write(&path, "").map_err(|error| error.to_string())?;
     }
-    crate::open(path.as_os_str())
+    accioshot::open(path.as_os_str()).map_err(|error| error.to_string())
 }

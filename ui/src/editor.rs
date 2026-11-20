@@ -2,13 +2,12 @@
 
 use std::path::{Path, PathBuf};
 
+use accioshot::COPY_ONLY_EXTENSION;
 use serde_json::Value;
 use tauri::ipc::{InvokeBody, Request, Response};
 use tauri::{AppHandle, State};
 
 use crate::settings::Settings;
-
-const COPY_ONLY_EXTENSION: &str = "copy-only";
 
 pub struct Paths {
     pub input: PathBuf,

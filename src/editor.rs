@@ -4,14 +4,11 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::Result;
 use crate::config::BUILTIN_EDITOR;
 use crate::fs::PrivateDir;
+use crate::{COPY_ONLY_EXTENSION, Result, UI_BINARY, sibling_binary};
 
-const UI_BINARY: &str = "accioshot-ui";
 const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
-/// Next to the output, the built-in editor creates it when the image is only for the clipboard.
-const COPY_ONLY_EXTENSION: &str = "copy-only";
 
 pub struct Edited {
     pub png: Vec<u8>,
@@ -76,7 +73,7 @@ fn plan(command: &str, input: &Path, output: &Path) -> Result<Plan> {
     let output_text = output.display().to_string();
     if command == BUILTIN_EDITOR {
         return Ok(Plan {
-            program: std::env::current_exe().map_or(UI_BINARY.into(), |exe| ui_binary(&exe)),
+            program: sibling_binary(UI_BINARY),
             args: vec!["edit".to_string(), input_text, output_text],
             result: output.to_path_buf(),
         });
@@ -95,14 +92,6 @@ fn plan(command: &str, input: &Path, output: &Path) -> Result<Plan> {
             false => input.to_path_buf(),
         },
     })
-}
-
-/// Next to `exe` first, so a build or a package finds its own windows.
-pub fn ui_binary(exe: &Path) -> PathBuf {
-    exe.parent()
-        .map(|dir| dir.join(UI_BINARY))
-        .filter(|path| path.exists())
-        .unwrap_or_else(|| UI_BINARY.into())
 }
 
 #[cfg(test)]

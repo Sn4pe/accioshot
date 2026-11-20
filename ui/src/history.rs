@@ -233,7 +233,7 @@ fn copy_part(entry: &Entry, part: Part, library: &Library) -> Result<(), String>
 
 /// Through accioshot: on Wayland only a process without threads can keep serving the clipboard.
 fn copy(args: &[&std::ffi::OsStr], text: &str) -> Result<(), String> {
-    let mut child = Command::new(crate::sibling("accioshot"))
+    let mut child = Command::new(accioshot::sibling_binary("accioshot"))
         .arg("copy")
         .args(args)
         .stdin(Stdio::piped())
@@ -301,7 +301,7 @@ fn edit_file(path: &Path, command: &str, still_listed: impl Fn() -> bool) -> Res
 pub fn open_entry(entry: Entry, part: Part, library: State<Library>) -> Result<(), String> {
     library.check(&entry)?;
     match part {
-        Part::File => crate::open(
+        Part::File => open(
             entry
                 .path
                 .as_deref()
@@ -310,7 +310,7 @@ pub fn open_entry(entry: Entry, part: Part, library: State<Library>) -> Result<(
         ),
         Part::Folder => {
             let dir = entry.path.as_deref().and_then(Path::parent);
-            crate::open(dir.ok_or("this capture has no file")?.as_os_str())
+            open(dir.ok_or("this capture has no file")?.as_os_str())
         }
         Part::Url => open_url(entry.url.as_deref()),
         Part::DeletionUrl => open_url(entry.deletion_url.as_deref()),
@@ -321,15 +321,14 @@ pub fn open_entry(entry: Entry, part: Part, library: State<Library>) -> Result<(
 /// These came from a remote server's response, the desktop must not run anything else.
 fn open_url(url: Option<&str>) -> Result<(), String> {
     let url = url.ok_or("this capture has no such link")?;
-    if !is_web_url(url) {
+    if !accioshot::is_web_url(url) {
         return Err(format!("not a web address: {url}"));
     }
-    crate::open(url.as_ref())
+    open(url.as_ref())
 }
 
-fn is_web_url(url: &str) -> bool {
-    let lower = url.to_ascii_lowercase();
-    lower.starts_with("http://") || lower.starts_with("https://")
+fn open(target: &std::ffi::OsStr) -> Result<(), String> {
+    accioshot::open(target).map_err(|error| error.to_string())
 }
 
 /// The file goes first: if that fails the entry stays, so the delete can be tried again.
@@ -444,15 +443,6 @@ mod tests {
             .push(entry(Some("/shots/a.png".into()), None));
         assert!(library.holds_files(&["/shots/a.png".into()]));
         assert!(!library.holds_files(&["/shots/a.png".into(), "/etc/passwd".into()]));
-    }
-
-    #[test]
-    fn only_web_links_open() {
-        assert!(is_web_url("https://x/delete/1"));
-        assert!(is_web_url("HTTP://x"));
-        assert!(!is_web_url("file:///etc/passwd"));
-        assert!(!is_web_url("--help"));
-        assert!(!is_web_url("javascript:alert(1)"));
     }
 
     #[test]

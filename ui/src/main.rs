@@ -10,7 +10,6 @@ mod theme;
 use std::ffi::OsString;
 #[cfg(target_os = "linux")]
 use std::path::Path;
-use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -216,27 +215,6 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => fail(error),
     }
-}
-
-/// Next to this binary, like accioshot finds this one.
-fn sibling(name: &str) -> PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|exe| Some(exe.parent()?.join(name)))
-        .filter(|path| path.exists())
-        .unwrap_or_else(|| name.into())
-}
-
-/// Hands a file or URL to the desktop, which may take a while to come back.
-fn open(target: &std::ffi::OsStr) -> Result<(), String> {
-    let mut child = std::process::Command::new(accioshot::OPENER)
-        .arg(target)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .spawn()
-        .map_err(|error| format!("cannot run {}: {error}", accioshot::OPENER))?;
-    std::thread::spawn(move || child.wait());
-    Ok(())
 }
 
 #[cfg(test)]

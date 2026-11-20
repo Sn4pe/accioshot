@@ -184,9 +184,7 @@ fn on_menu(id: &str) {
             NSApplication::sharedApplication(mtm).terminate(None);
         }
     } else if id == HISTORY || id == SETTINGS {
-        if let Some(exe) = EXE.get() {
-            spawn_ui(exe, if id == HISTORY { HISTORY } else { SETTINGS });
-        }
+        spawn_ui(if id == HISTORY { HISTORY } else { SETTINGS });
     } else if id == OPEN_FOLDER {
         STATE.with_borrow(|state| {
             if let Some(state) = state {

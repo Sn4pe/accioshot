@@ -11,7 +11,7 @@ mod platform;
 mod platform;
 
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
@@ -95,7 +95,7 @@ fn spawn_capture(exe: PathBuf, mode: &'static str, delay: Duration) {
 static OPEN_WINDOWS: Mutex<Vec<(&'static str, u32)>> = Mutex::new(Vec::new());
 
 /// `window` is `history` or `settings`.
-fn spawn_ui(exe: &Path, window: &'static str) {
+fn spawn_ui(window: &'static str) {
     let mut open = OPEN_WINDOWS
         .lock()
         .unwrap_or_else(|error| error.into_inner());
@@ -103,7 +103,7 @@ fn spawn_ui(exe: &Path, window: &'static str) {
         raise(pid);
         return;
     }
-    let mut child = match Command::new(accioshot::editor::ui_binary(exe))
+    let mut child = match Command::new(accioshot::sibling_binary(accioshot::UI_BINARY))
         .arg(window)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -136,12 +136,9 @@ fn raise(pid: u32) {
 fn raise(_pid: u32) {}
 
 fn open(target: &std::ffi::OsStr) {
-    let target = target.to_os_string();
-    std::thread::spawn(move || {
-        if let Err(error) = Command::new(crate::OPENER).arg(target).status() {
-            eprintln!("accioshot: cannot run {}: {error}", crate::OPENER);
-        }
-    });
+    if let Err(error) = accioshot::open(target) {
+        eprintln!("accioshot: {error}");
+    }
 }
 
 #[cfg(test)]
