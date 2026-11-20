@@ -376,26 +376,11 @@ mod tests {
     }
 
     fn served(body: Vec<u8>) -> Result<String> {
-        use std::io::{Read, Write};
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut request = [0; 4096];
-            let _read = stream.read(&mut request).unwrap();
-            let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len());
-            stream.write_all(head.as_bytes()).unwrap();
-            stream.write_all(&body).ok();
-        });
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
+        let response = reqwest::Response::from(http::Response::new(body));
+        tokio::runtime::Builder::new_current_thread()
             .build()
-            .unwrap();
-        let text = runtime.block_on(async {
-            read_text(reqwest::get(format!("http://{address}/")).await.unwrap()).await
-        });
-        server.join().unwrap();
-        text
+            .unwrap()
+            .block_on(read_text(response))
     }
 
     #[test]
