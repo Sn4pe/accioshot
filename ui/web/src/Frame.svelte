@@ -37,7 +37,7 @@
       (seen) => {
         if (seen.some((one) => one.isIntersecting)) {
           observer.disconnect()
-          load()
+          void load()
         }
       },
       { rootMargin: '200px' },

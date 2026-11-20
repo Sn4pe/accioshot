@@ -1,6 +1,8 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <script lang="ts">
-  let { name }: { name: string } = $props()
+  import type { Tool } from './lib/model'
+
+  let { name }: { name: Tool | 'undo' | 'redo' } = $props()
 </script>
 
 <svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">

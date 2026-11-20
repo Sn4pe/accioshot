@@ -83,7 +83,7 @@
   function onKeyDown(event: KeyboardEvent) {
     if (eventCombo(event) === 'ctrl+s') {
       event.preventDefault()
-      if (dirty) save()
+      if (dirty) void save()
     }
   }
 
@@ -95,6 +95,7 @@
 <div class="settings">
   <main>
     {#if config}
+      {@const c = config}
       <section>
         <h2>Appearance</h2>
         <label class="row">
@@ -119,7 +120,7 @@
                 <input
                   type="checkbox"
                   checked={config.after_capture.includes(name)}
-                  onchange={(event) => toggle(config!.after_capture, name, event.currentTarget.checked)}
+                  onchange={(event) => toggle(c.after_capture, name, event.currentTarget.checked)}
                 />
                 {label}
               </label>
@@ -134,7 +135,7 @@
                 <input
                   type="checkbox"
                   checked={config.after_upload.includes(name)}
-                  onchange={(event) => toggle(config!.after_upload, name, event.currentTarget.checked)}
+                  onchange={(event) => toggle(c.after_upload, name, event.currentTarget.checked)}
                 />
                 {label}
               </label>
@@ -145,7 +146,7 @@
           <span class="name">Uploader</span>
           <select
             value={config.uploader ?? ''}
-            onchange={(event) => (config!.uploader = emptyToNull(event.currentTarget.value))}
+            onchange={(event) => (c.uploader = emptyToNull(event.currentTarget.value))}
           >
             <option value="">None</option>
             {#each uploaderChoices as name (name)}
@@ -168,7 +169,7 @@
             spellcheck="false"
             placeholder="Pictures/accioshot"
             value={config.save_dir ?? ''}
-            oninput={(event) => (config!.save_dir = emptyToNull(event.currentTarget.value))}
+            oninput={(event) => (c.save_dir = emptyToNull(event.currentTarget.value))}
           />
         </label>
         <label class="row">
@@ -234,7 +235,7 @@
           <input
             type="checkbox"
             checked={config.editor.command === BUILTIN}
-            onchange={(event) => (config!.editor.command = event.currentTarget.checked ? BUILTIN : '')}
+            onchange={(event) => (c.editor.command = event.currentTarget.checked ? BUILTIN : '')}
           />
         </label>
         {#if config.editor.command !== BUILTIN}

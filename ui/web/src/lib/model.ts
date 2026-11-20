@@ -26,10 +26,8 @@ export type Annotation = Shape | Freehand | Text | Step
 export type Doc = { annotations: Annotation[]; crop: Rect | null }
 export const EMPTY_DOC: Doc = { annotations: [], crop: null }
 
-export const SHAPE_KINDS: readonly string[] = ['Rectangle', 'Ellipse', 'Line', 'Arrow', 'Highlight', 'Blur', 'Pixelate']
-
 export function isShape(annotation: Annotation): annotation is Shape {
-  return SHAPE_KINDS.includes(annotation.kind)
+  return annotation.kind !== 'Freehand' && annotation.kind !== 'Text' && annotation.kind !== 'Step'
 }
 
 function isLineLike(annotation: Annotation): boolean {
@@ -117,12 +115,17 @@ export function hitTop(annotations: Annotation[], p: Point, tolerance: number): 
   return null
 }
 
-export function translated<T extends Annotation>(annotation: T, dx: number, dy: number): T {
+export function translated(annotation: Annotation, dx: number, dy: number): Annotation {
   const move = (p: Point) => ({ x: p.x + dx, y: p.y + dy })
-  if (annotation.kind === 'Freehand') return { ...annotation, points: annotation.points.map(move) }
-  if (annotation.kind === 'Text' || annotation.kind === 'Step') return { ...annotation, at: move(annotation.at) }
-  const shape = annotation as Shape
-  return { ...shape, a: move(shape.a), b: move(shape.b) } as T
+  switch (annotation.kind) {
+    case 'Freehand':
+      return { ...annotation, points: annotation.points.map(move) }
+    case 'Text':
+    case 'Step':
+      return { ...annotation, at: move(annotation.at) }
+    default:
+      return { ...annotation, a: move(annotation.a), b: move(annotation.b) }
+  }
 }
 
 export type HandleId = 'a' | 'b' | 'ab' | 'ba'

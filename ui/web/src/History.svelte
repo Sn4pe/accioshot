@@ -192,11 +192,11 @@
       viewing = 'preview'
       return
     } else if (combo === 'ctrl+enter') {
-      if (current.exists) open('file')
-      else if (current.entry.url) open('url')
+      if (current.exists) void open('file')
+      else if (current.entry.url) void open('url')
     } else if (combo === 'ctrl+c') {
-      if (current.exists) copy('image', 'Image copied')
-      else if (current.entry.url) copy('url', 'URL copied')
+      if (current.exists) void copy('image', 'Image copied')
+      else if (current.entry.url) void copy('url', 'URL copied')
     }
   }
 
