@@ -23,14 +23,11 @@ pub fn run() -> Result<()> {
     let tray = Tray {
         recent: history::recent(RECENT_COUNT),
         pictures_dir: config.pictures_dir()?,
-        // Asked now: once an update replaces the binary, the kernel reports it as "(deleted)".
         exe: std::env::current_exe()?,
         quit,
     };
     let handle = tray.spawn()?;
 
-    // shortcut: polls the file because captures are separate processes, use inotify if a two
-    // second delay in the menu ever matters.
     let mut seen = history_modified();
     loop {
         match quitting.recv_timeout(HISTORY_POLL) {
@@ -137,7 +134,6 @@ fn recent_item(entry: &Entry) -> MenuItem<Tray> {
     StandardItem {
         label: menu_label(&entry_label(entry)),
         activate: Box::new(move |_: &mut Tray| {
-            // In process, the daemon lives on to serve the clipboard.
             let source = Source::Bytes(text.clone().into_bytes().into());
             if let Err(error) = Options::new().copy(source, MimeType::Text) {
                 eprintln!("accioshot: {error}");
@@ -148,7 +144,6 @@ fn recent_item(entry: &Entry) -> MenuItem<Tray> {
     .into()
 }
 
-/// Single underscores are mnemonics in menu labels, and capture names are full of them.
 fn menu_label(text: &str) -> String {
     text.replace('_', "__")
 }

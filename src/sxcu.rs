@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//
 // Ported from ShareX.UploadersLib/CustomUploader/CustomUploaderItem.cs.
 // Copyright (c) 2007-2026 ShareX Team
 // Copyright (c) 2026 David
@@ -152,7 +151,6 @@ impl Uploader {
         for (key, value) in &self.headers {
             let name = HeaderName::try_from(key.as_str())
                 .map_err(|_| format!("invalid header name: {key}"))?;
-            // No value in the message, headers usually hold tokens.
             let value = HeaderValue::try_from(parser.parse(value)?)
                 .map_err(|_| format!("invalid value for header {key}"))?;
             map.insert(name, value);
@@ -198,7 +196,6 @@ impl Uploader {
         if url.is_empty() {
             return Err("upload succeeded but the response has no URL".into());
         }
-        // The file is already up, a bad deletion template must not hide its URL.
         let deletion_url = parser
             .parse(&self.deletion_url)
             .ok()
@@ -216,7 +213,6 @@ pub async fn upload(uploader: &Uploader, png: Vec<u8>, file_name: &str) -> Resul
         Body::MultipartFormData => request.multipart(uploader.form(png, file_name)?),
         _ => request.header(CONTENT_TYPE, PNG_MIME).body(png),
     };
-    // Replaces the default Content-Type if the uploader sets its own.
     request = request.headers(uploader.header_map(file_name)?);
 
     let response = request.send().await.map_err(describe)?;
@@ -238,7 +234,6 @@ async fn read_text(mut response: reqwest::Response) -> Result<String> {
     Ok(String::from_utf8_lossy(&body).into_owned())
 }
 
-/// reqwest errors include the URL, and request URLs often hold API keys.
 fn describe(error: reqwest::Error) -> Box<dyn Error> {
     let error = error.without_url();
     let causes: Vec<String> = std::iter::successors(error.source(), |&cause| cause.source())

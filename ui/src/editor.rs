@@ -44,7 +44,6 @@ fn state_path() -> Option<PathBuf> {
     Some(accioshot::state_dir()?.join("editor.json"))
 }
 
-/// Takes raw bytes, JSON would make a large image many times bigger.
 #[tauri::command]
 pub fn save(request: Request, paths: State<Paths>, app: AppHandle) -> Result<()> {
     write_output(&request, &paths.output)?;
@@ -52,7 +51,6 @@ pub fn save(request: Request, paths: State<Paths>, app: AppHandle) -> Result<()>
     Ok(())
 }
 
-/// Same as save, the marker tells accioshot the image is only for the clipboard.
 #[tauri::command]
 pub fn copy(request: Request, paths: State<Paths>, app: AppHandle) -> Result<()> {
     let marker = paths.output.with_extension(COPY_ONLY_EXTENSION);
@@ -73,7 +71,6 @@ fn write_output(request: &Request, output: &Path) -> Result<()> {
         .map_err(|error| format!("cannot save: {error}"))?)
 }
 
-/// Closing before the image appeared is a failure, not a choice: accioshot must keep the capture.
 #[tauri::command]
 pub fn discard(loaded: bool, app: AppHandle) {
     app.exit(if loaded { 0 } else { 1 });

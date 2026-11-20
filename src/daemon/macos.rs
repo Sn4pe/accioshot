@@ -25,7 +25,6 @@ use crate::config::Config;
 use crate::history::{self, Entry};
 use crate::{Result, clipboard};
 
-// Carbon's only API for global shortcuts, and it needs no Accessibility permission.
 const EVENT_CLASS_KEYBOARD: u32 = u32::from_be_bytes(*b"keyb");
 const EVENT_HOT_KEY_PRESSED: u32 = 5;
 const SIGNATURE: u32 = u32::from_be_bytes(*b"acct");
@@ -81,14 +80,12 @@ struct State {
 }
 
 thread_local! {
-    // Menus can only be touched from the main thread, which is where every callback here runs.
     static STATE: RefCell<Option<State>> = const { RefCell::new(None) };
 }
 
 pub fn run() -> Result<()> {
     let _lock = single_instance()?;
     let config = Config::load()?;
-    // Asked now, an update can replace the binary while this runs.
     EXE.set(std::env::current_exe()?)
         .map_err(|_| "started twice")?;
 
@@ -126,10 +123,7 @@ pub fn run() -> Result<()> {
         }
     }));
 
-    // shortcut: polls the file because captures are separate processes, use FSEvents if a two
-    // second delay in the menu ever matters.
     let timer = CFRunLoopTimer::new(
-        // SAFETY: a plain clock read.
         unsafe { CFAbsoluteTimeGetCurrent() } + HISTORY_POLL.as_secs_f64(),
         HISTORY_POLL.as_secs_f64(),
         0,
@@ -137,7 +131,6 @@ pub fn run() -> Result<()> {
         refresh_recent,
         ptr::null_mut(),
     );
-    // SAFETY: the mode is the framework's own constant.
     CFRunLoop::get_current().add_timer(&timer, unsafe { kCFRunLoopCommonModes });
 
     app.run();
@@ -164,7 +157,6 @@ fn menu(recent: &[Entry]) -> Result<Menu> {
     menu.append(&PredefinedMenuItem::separator())?;
     let submenu = Submenu::new("Recent", !recent.is_empty());
     for entry in recent {
-        // The text itself, a refresh can replace the list while the menu is open.
         let id = format!("{RECENT_PREFIX}{}", entry_text(entry));
         submenu.append(&MenuItem::with_id(id, entry_label(entry), true, None))?;
     }
@@ -233,7 +225,6 @@ fn register_shortcut(shortcut: &str) -> Result<()> {
         signature: SIGNATURE,
         id: 1,
     };
-    // SAFETY: the arguments outlive the calls, and the registration lasts until the process exits.
     unsafe {
         let target = GetApplicationEventTarget();
         let status = InstallEventHandler(

@@ -18,8 +18,6 @@ use serde::{Deserialize, Serialize};
 use tauri::ipc::Response;
 use tauri::{AppHandle, Manager, State};
 
-/// The entries last shown. Commands only act on these: what a page asks to read, copy, open or
-/// delete must be something the history really holds.
 pub struct Library {
     entries: Mutex<Vec<Entry>>,
     config: HistoryConfig,
@@ -86,7 +84,6 @@ pub struct Items {
 #[derive(Serialize)]
 pub struct Item {
     entry: Entry,
-    /// Whether the saved file is still on disk.
     exists: bool,
 }
 
@@ -175,7 +172,6 @@ fn render_thumbnail(path: &Path, size: (u32, u32)) -> accioshot::Result<Vec<u8>>
     Ok(bytes.into_inner())
 }
 
-/// Keyed by what makes it stale, so an edited file or another size gets a new one.
 fn thumbnail_path(path: &Path, file: &Metadata, size: (u32, u32)) -> Option<PathBuf> {
     let mut hasher = DefaultHasher::new();
     (path, file.modified().ok(), file.len(), size).hash(&mut hasher);
@@ -185,7 +181,6 @@ fn thumbnail_path(path: &Path, file: &Metadata, size: (u32, u32)) -> Option<Path
 
 fn store(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
-        // 0700: these are small copies of screenshots, they may hold anything.
         DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
     }
     write_atomically(path, bytes, 0o600)
@@ -225,7 +220,6 @@ fn copy_part(entry: &Entry, part: Part, library: &Library) -> Result<()> {
     }
 }
 
-/// Through accioshot: on Wayland only a process without threads can keep serving the clipboard.
 fn copy(args: &[&std::ffi::OsStr], text: &str) -> Result<()> {
     let mut child = Command::new(accioshot::sibling_binary("accioshot"))
         .arg("copy")
@@ -296,7 +290,6 @@ pub fn open_entry(entry: Entry, part: Part, library: State<Library>) -> Result<(
     }
 }
 
-/// These came from a remote server's response, the desktop must not run anything else.
 fn open_url(url: Option<&str>) -> Result<()> {
     let url = url.ok_or("this capture has no such link")?;
     if !accioshot::is_web_url(url) {
@@ -309,7 +302,6 @@ fn open(target: &std::ffi::OsStr) -> Result<()> {
     Ok(accioshot::open(target)?)
 }
 
-/// The file goes first: if that fails the entry stays, so the delete can be tried again.
 #[tauri::command]
 pub fn delete_entries(
     entries: Vec<Entry>,

@@ -15,7 +15,6 @@ pub struct Edited {
     pub copy_only: bool,
 }
 
-/// Opens the capture in an editor. Returns the edited image, or None if the user discarded it.
 pub fn edit(command: &str, png: &[u8]) -> Result<Option<Edited>> {
     let dir = PrivateDir::new("accioshot-edit")?;
     edit_in(command, png, dir.path())
@@ -30,7 +29,6 @@ fn edit_in(command: &str, png: &[u8], dir: &Path) -> Result<Option<Edited>> {
     let status = Command::new(&plan.program)
         .args(&plan.args)
         .stdin(Stdio::null())
-        // Our stdout is the result scripts read.
         .stdout(Stdio::null())
         .status()
         .map_err(|error| match error.kind() {
@@ -66,8 +64,6 @@ struct Plan {
     result: PathBuf,
 }
 
-/// shortcut: templates split on whitespace, no quoting. The paths are replaced after splitting so
-/// they can have spaces. Use a real parser if an editor needs quoted arguments.
 fn plan(command: &str, input: &Path, output: &Path) -> Result<Plan> {
     let input_text = input.display().to_string();
     let output_text = output.display().to_string();
@@ -86,7 +82,6 @@ fn plan(command: &str, input: &Path, output: &Path) -> Result<Plan> {
     Ok(Plan {
         program: program.into(),
         args: parts.collect(),
-        // Without {output} the editor must change the file in place.
         result: match command.contains("{output}") {
             true => output.to_path_buf(),
             false => input.to_path_buf(),

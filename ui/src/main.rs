@@ -24,7 +24,6 @@ const DMABUF_VARIABLE: &str = "WEBKIT_DISABLE_DMABUF_RENDERER";
 const FLOAT_SETTLE: Duration = Duration::from_millis(300);
 const HISTORY_SIZE: (u32, u32) = (1120, 760);
 const SETTINGS_SIZE: (u32, u32) = (720, 760);
-/// GTK counts it in 1024ths of a dot per inch.
 #[cfg(target_os = "linux")]
 const DEFAULT_FONT_DPI: i32 = 96 * 1024;
 
@@ -65,18 +64,13 @@ fn window_name(name: tauri::State<WindowName>) -> &'static str {
     name.0
 }
 
-/// WebKit crashes with Wayland error 71 on NVIDIA unless its DMABUF renderer is off. Setting the
-/// variable yourself wins over this.
 #[cfg(target_os = "linux")]
 fn work_around_nvidia() {
     if std::env::var_os(DMABUF_VARIABLE).is_none() && Path::new("/proc/driver/nvidia").exists() {
-        // SAFETY: called first thing in main, before any other thread exists.
         unsafe { std::env::set_var(DMABUF_VARIABLE, "1") };
     }
 }
 
-/// GTK leaves this at -1 without the gsettings-desktop-schemas, and WebKit scales the page by it:
-/// everything lays out at a negative size and the window looks black.
 #[cfg(target_os = "linux")]
 fn work_around_missing_font_dpi() {
     if let Some(settings) = gtk::Settings::default()
@@ -86,8 +80,6 @@ fn work_around_missing_font_dpi() {
     }
 }
 
-/// Compositors float a window whose minimum and maximum sizes match, and Wayland clients have no
-/// other way to ask for it. Once it is on screen it can go back to being resizable.
 fn show_floating(window: WebviewWindow, size: LogicalSize<u32>) -> tauri::Result<()> {
     window.set_min_size(Some(size))?;
     window.set_max_size(Some(size))?;
@@ -143,7 +135,6 @@ fn main() -> ExitCode {
                 ("accioshot editor", (window.0, window.1), window.2)
             }
             Mode::History => {
-                // A broken config.toml should not hide the captures, the defaults show them fine.
                 let config = Config::load().unwrap_or_else(|error| {
                     eprintln!("accioshot-ui: {error}");
                     Config::default()
@@ -201,7 +192,6 @@ fn main() -> ExitCode {
             } else {
                 window.show()?;
             }
-            // Started from a terminal instead of an app bundle, it would open behind everything.
             #[cfg(target_os = "macos")]
             app.get_webview_window("main")
                 .ok_or("no main window")?

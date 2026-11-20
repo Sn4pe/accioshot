@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-
-//! File name patterns, a subset of ShareX's NameParser. Copyright (c) 2007-2026 ShareX Team.
-//!
-//! Unlike ShareX this reads the pattern once from left to right, so a window title holding `%y`
-//! stays text. The auto-increment tokens are left out, they need a persistent counter.
+// Ported from ShareX.HelpersLib/NameParser.
+// Copyright (c) 2007-2026 ShareX Team
+// Copyright (c) 2026 David
 
 use std::fs::File;
 use std::io::{self, Read};
@@ -11,13 +9,11 @@ use std::io::{self, Read};
 use chrono::{DateTime, Local};
 
 const FALLBACK_NAME: &str = "accioshot";
-/// Room for the extension and the suffix of a repeated name in the usual 255 byte limit.
 const MAX_NAME_BYTES: usize = 200;
 const ALPHANUMERIC: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const DIGITS: &[u8] = b"0123456789";
 const HEXADECIMAL: &[u8] = b"0123456789abcdef";
 const MAX_RANDOM_LENGTH: usize = 64;
-/// Longer tokens first, `%y` must not win over `%yy`.
 const TOKENS: &[&str] = &[
     "height", "width", "guid", "mon2", "unix", "mon", "cn", "mi", "mo", "ms", "pm", "pn", "ra",
     "rn", "rx", "un", "wy", "yy", "d", "h", "s", "t", "y",
@@ -50,7 +46,6 @@ pub fn file_name(pattern: &str, source: &Source) -> io::Result<String> {
     Ok(format!("{name}.png"))
 }
 
-/// Reads the size from the PNG header, the name does not justify decoding the image.
 pub fn png_size(png: &[u8]) -> (u32, u32) {
     let number = |range: std::ops::Range<usize>| {
         png.get(range)
@@ -110,7 +105,6 @@ fn value(token: &str, source: &Source, twelve_hours: bool) -> io::Result<Option<
         "y" => date("%Y"),
         "yy" => date("%y"),
         "mo" => date("%m"),
-        // shortcut: English names only, ShareX's %mon is localized. Add chrono's locales if asked.
         "mon" | "mon2" => date("%B"),
         "d" => date("%d"),
         "h" if twelve_hours => date("%I"),
@@ -134,7 +128,6 @@ fn value(token: &str, source: &Source, twelve_hours: bool) -> io::Result<Option<
     }))
 }
 
-/// ShareX's `%ra{10}`: repeats a random token.
 fn random_length(rest: &str) -> (usize, &str) {
     let parsed = rest.strip_prefix('{').and_then(|inner| {
         let (number, after) = inner.split_once('}')?;
@@ -158,7 +151,6 @@ fn random_token(token: &str, length: usize) -> io::Result<String> {
         .collect())
 }
 
-/// shortcut: modulo is slightly biased and fine for names, these are not secrets.
 fn random_bytes(length: usize) -> io::Result<Vec<u8>> {
     let mut bytes = vec![0; length];
     File::open("/dev/urandom")?.read_exact(&mut bytes)?;
@@ -185,12 +177,10 @@ fn guid() -> io::Result<String> {
     ))
 }
 
-/// Same as ShareX's SanitizeInput, a title reads better without spaces.
 fn window_text(text: &str) -> String {
     text.trim().replace(' ', "_")
 }
 
-/// The name reaches disks and uploaders, so nothing that means something in a path survives.
 fn sanitize(name: &str) -> String {
     let clean: String = name
         .chars()

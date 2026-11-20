@@ -12,7 +12,6 @@ use crate::Result;
 pub const BUILTIN_EDITOR: &str = "builtin";
 pub const DEFAULT_NAME_PATTERN: &str = "accioshot_%y-%mo-%d_%h-%mi-%s";
 
-/// Action names come from ShareX's AfterCaptureTasks and AfterUploadTasks.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum AfterCapture {
     AnnotateImage,
@@ -80,7 +79,6 @@ impl HistoryConfig {
     }
 }
 
-/// ShareX's defaults, from ImageHistorySettings.
 impl Default for HistoryConfig {
     fn default() -> Self {
         HistoryConfig {
@@ -92,7 +90,6 @@ impl Default for HistoryConfig {
     }
 }
 
-/// Read on macOS only, on Linux the compositor owns global shortcuts.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct TrayConfig {
@@ -116,7 +113,6 @@ pub struct RegionConfig {
     pub magnifier_pixels: u32,
 }
 
-/// ShareX's defaults, from RegionCaptureOptions.
 impl Default for RegionConfig {
     fn default() -> Self {
         RegionConfig {
@@ -212,7 +208,6 @@ impl Default for Config {
     }
 }
 
-/// `~/.config` on macOS too, so the same files work on both systems.
 fn dir() -> Result<PathBuf> {
     let base = match cfg!(target_os = "macos") {
         true => dirs::home_dir().map(|home| home.join(".config")),
@@ -231,7 +226,6 @@ pub fn uploaders_dir() -> Result<PathBuf> {
     Ok(dir()?.join("uploaders"))
 }
 
-/// Only the names: `.sxcu` files can hold API keys.
 pub fn uploader_names() -> Vec<String> {
     let Ok(dir) = uploaders_dir() else {
         return Vec::new();
@@ -250,8 +244,6 @@ pub fn uploader_names() -> Vec<String> {
     names
 }
 
-/// Applies `config` to the file's text. Comments, unknown tables and keys left at their
-/// value stay as they are, and a default nobody set stays out of the file.
 fn patched(text: &str, config: &Config) -> Result<String> {
     let mut document: DocumentMut = text.parse()?;
     let old: toml::Table = toml::from_str(text)?;
@@ -298,7 +290,6 @@ fn merge(
             merge(table, was, value, default)?;
         } else if !same(was.or(default.get(key)), value) {
             let mut replacement: toml_edit::Value = value.to_string().parse()?;
-            // In place: inserting would replace the key too, and the comment above it lives there.
             match document.get_mut(key) {
                 Some(current) => {
                     if let Some(value) = current.as_value() {
@@ -341,7 +332,6 @@ impl Config {
         let text = patched(&text, self).map_err(|error| format!("{}: {error}", path.display()))?;
         toml::from_str::<Config>(&text)?;
 
-        // Dotfile managers link this file, and a rename would replace the link.
         let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         let permissions = std::fs::metadata(&target).map(|file| file.permissions());
         if let Some(dir) = target.parent() {

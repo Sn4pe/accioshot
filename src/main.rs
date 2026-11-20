@@ -73,7 +73,6 @@ struct CaptureArgs {
     delay: Option<f64>,
 }
 
-/// An app bundle gets opened without arguments, and that means running in the background.
 fn command() -> Command {
     let in_bundle = cfg!(target_os = "macos")
         && std::env::args_os().len() == 1
@@ -101,7 +100,6 @@ fn main() {
     }
 }
 
-/// Here and not in the UI: on Wayland the clipboard is served by a fork, and that process has threads.
 fn copy(image: Option<PathBuf>) -> Result<()> {
     match image {
         Some(path) => clipboard::copy_image(&fs::read(path)?),
@@ -113,7 +111,6 @@ fn copy(image: Option<PathBuf>) -> Result<()> {
     }
 }
 
-/// From a key binding nobody sees stderr.
 fn notify_failure(message: &str) {
     let enabled = Config::load().map_or(true, |config| config.notifications);
     if enabled
@@ -126,8 +123,6 @@ fn notify_failure(message: &str) {
     }
 }
 
-/// What to do with a capture. Any flag replaces the whole config, so a script gets exactly what
-/// it asked for.
 #[derive(Debug, PartialEq)]
 struct Actions {
     edit: bool,
@@ -175,14 +170,12 @@ impl Actions {
                 upload,
             }
         };
-        // A capture nothing happens to would be lost.
         if actions.save.is_none() && !actions.copy_image && actions.upload.is_none() {
             actions.save = Some(config.pictures_dir()?);
         }
         Ok(actions)
     }
 
-    /// The editor's copy key: to the clipboard and nothing else.
     fn only_copy(self) -> Actions {
         Actions {
             edit: self.edit,
@@ -195,7 +188,6 @@ impl Actions {
     }
 }
 
-/// For a failure that would lose the only copy of the capture.
 fn keep_capture(config: &Config, file_name: &str, png: &[u8], error: &dyn Error) -> Box<dyn Error> {
     match config
         .pictures_dir()
@@ -221,13 +213,11 @@ fn run(args: CaptureArgs) -> Result<()> {
         .enable_all()
         .build()?;
 
-    // Load first, a broken uploader should fail before the user picks a region.
     let mut uploader = actions.upload.as_deref().map(sxcu::load).transpose()?;
     let Some(selecting) = daemon::lock("accioshot-capture.lock")? else {
         return Err(capture::Stopped::Busy.into());
     };
     std::thread::sleep(delay);
-    // Before the selector or the editor take the focus.
     let window = names::needs_window(&config.name_pattern)
         .then(capture::active_window_names)
         .flatten();
@@ -271,21 +261,18 @@ fn run(args: CaptureArgs) -> Result<()> {
         .transpose()?;
 
     let uploaded = match &uploader {
-        Some(uploader) => {
-            match runtime.block_on(sxcu::upload(uploader, png.clone(), &file_name)) {
-                Ok(uploaded) => Some(uploaded),
-                Err(error) => {
-                    // Don't lose the capture if it only existed for the upload.
-                    return Err(match &saved {
-                        Some(path) => {
-                            remember(&now.to_rfc3339(), Some(path), None);
-                            error
-                        }
-                        None => keep_capture(&config, &file_name, &png, error.as_ref()),
-                    });
-                }
+        Some(uploader) => match runtime.block_on(sxcu::upload(uploader, png.clone(), &file_name)) {
+            Ok(uploaded) => Some(uploaded),
+            Err(error) => {
+                return Err(match &saved {
+                    Some(path) => {
+                        remember(&now.to_rfc3339(), Some(path), None);
+                        error
+                    }
+                    None => keep_capture(&config, &file_name, &png, error.as_ref()),
+                });
             }
-        }
+        },
         None => None,
     };
 
@@ -321,7 +308,6 @@ fn run(args: CaptureArgs) -> Result<()> {
         }
     }
 
-    // The fork below needs a single thread.
     drop(runtime);
     if actions.copy_url
         && let Some(uploaded) = uploaded
@@ -330,7 +316,6 @@ fn run(args: CaptureArgs) -> Result<()> {
     } else if actions.copy_image
         && let Err(error) = clipboard::copy_image(&png)
     {
-        // After the editor's copy key the clipboard was the only destination.
         return Err(match saved {
             Some(_) => error,
             None => keep_capture(&config, &file_name, &png, error.as_ref()),
@@ -354,7 +339,6 @@ fn remember(time: &str, saved: Option<&Path>, uploaded: Option<&sxcu::Uploaded>)
     }
 }
 
-/// The URL comes from a remote server, so only web links get opened.
 fn open_url(url: &str) {
     if !accioshot::is_web_url(url) {
         eprintln!("accioshot: not opening a non-web URL: {url}");
@@ -365,7 +349,6 @@ fn open_url(url: &str) {
     }
 }
 
-/// Never overwrites: two captures in the same second get a numeric suffix.
 fn save(dir: &Path, file_name: &str, png: &[u8]) -> Result<PathBuf> {
     fs::create_dir_all(dir)?;
     let stem = file_name.strip_suffix(".png").unwrap_or(file_name);

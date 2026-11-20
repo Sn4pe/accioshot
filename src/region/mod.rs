@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Region selection over a frozen capture, like ShareX: whatever was on screen when the key was
-//! pressed stays visible and in the result, even if the overlay makes panels or popups close.
-
 #[cfg(target_os = "macos")]
 #[path = "macos.rs"]
 mod platform;
@@ -22,20 +19,15 @@ const WHITE: [u8; 4] = [0xFF, 0xFF, 0xFF, 0xFF];
 const BLACK: [u8; 4] = [0x00, 0x00, 0x00, 0xFF];
 const MAGNIFIER_GAP: u32 = 24;
 const DIM_PERCENT: u16 = 45;
-/// Same as ShareX's MinimumSize: a smaller drag is a click that moved a little.
 const MIN_DRAG: f64 = 5.0;
 
-/// Shows the real pixels around the cursor, also on scaled monitors where the overlay is soft.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Magnifier {
-    /// Pixels of the capture per side, odd so one of them is the center.
     pixels: u32,
-    /// Overlay pixels per capture pixel.
     cell: u32,
 }
 
 impl Magnifier {
-    /// Limits from ShareX's RegionCaptureOptions.
     pub fn new(size: u32, pixels: u32) -> Magnifier {
         let pixels = pixels.clamp(3, 35) | 1;
         Magnifier {
@@ -49,7 +41,6 @@ impl Magnifier {
     }
 }
 
-/// What the pointer has done so far, in global logical coordinates.
 #[derive(Default)]
 struct Gesture {
     cursor: Option<(f64, f64)>,
@@ -85,7 +76,6 @@ impl Gesture {
         self.drag_start = Some(position);
     }
 
-    /// A click with no window under it selects nothing, keep waiting.
     fn released_at(&mut self, position: (f64, f64), windows: &[Area]) {
         self.cursor = Some(position);
         match released(self.selection(), windows, position) {
@@ -102,7 +92,6 @@ struct View<'a> {
     bright: &'a [u8],
 }
 
-/// Paints the selection, crosshair and magnifier on a canvas that already holds the dimmed image.
 fn paint(
     canvas: &mut [u8],
     view: &View,
@@ -129,10 +118,6 @@ fn paint(
     }
 }
 
-/// Copies the part of the frozen capture under a monitor, as ARGB8888.
-///
-/// shortcut: one buffer pixel per logical pixel, so the preview is soft on scaled monitors. The
-/// result is cropped from the full capture and is not affected. Use wp_viewporter if it bothers.
 fn render_screen(
     image: &RgbaImage,
     layout: &[Area],
@@ -155,7 +140,6 @@ fn render_screen(
     pixels
 }
 
-/// The layout's top left corner and the capture pixels per logical pixel.
 fn image_mapping(image: &RgbaImage, layout: &[Area]) -> (f64, f64, f64) {
     let min_x = layout.iter().map(|a| a.x).fold(f64::INFINITY, f64::min);
     let min_y = layout.iter().map(|a| a.y).fold(f64::INFINITY, f64::min);
@@ -199,14 +183,12 @@ fn window_at(windows: &[Area], (x, y): (f64, f64)) -> Option<Area> {
         .copied()
 }
 
-/// What releasing the button selects: the dragged area, or the window under a click.
 fn released(selection: Option<Area>, windows: &[Area], cursor: (f64, f64)) -> Option<Area> {
     selection
         .filter(|area| area.width >= MIN_DRAG && area.height >= MIN_DRAG)
         .or_else(|| window_at(windows, cursor))
 }
 
-/// The selection in surface pixels, clamped to the monitor, as (left, top, right, bottom).
 fn visible_part(selection: Area, screen: Area, width: u32, height: u32) -> Option<[u32; 4]> {
     let left = (selection.x - screen.x).floor().max(0.0);
     let top = (selection.y - screen.y).floor().max(0.0);
@@ -252,7 +234,6 @@ fn paint_crosshair(canvas: &mut [u8], view: &View, cursor: (f64, f64)) {
     }
 }
 
-/// Where the magnifier goes along one axis: past the cursor, or before it near the far edge.
 fn magnifier_offset(cursor: u32, side: u32, screen: u32) -> u32 {
     if cursor + MAGNIFIER_GAP + side <= screen {
         cursor + MAGNIFIER_GAP
@@ -261,7 +242,6 @@ fn magnifier_offset(cursor: u32, side: u32, screen: u32) -> u32 {
     }
 }
 
-/// `view` is the monitor's area and its surface size.
 fn paint_magnifier(
     canvas: &mut [u8],
     (area, width, height): (Area, u32, u32),
@@ -276,7 +256,6 @@ fn paint_magnifier(
     if x < 0.0 || y < 0.0 || x >= f64::from(width) || y >= f64::from(height) {
         return;
     }
-    // Too small a monitor for it, the crosshair is still there.
     if side + 2 > width || side + 2 > height {
         return;
     }
@@ -351,7 +330,6 @@ mod tests {
                 cell: 10
             }
         );
-        // Even counts have no center pixel.
         assert_eq!(Magnifier::new(150, 16).pixels, 17);
         assert_eq!(
             Magnifier::new(1, 999),
@@ -379,7 +357,6 @@ mod tests {
         let view = (layout[0], 400, 400);
         paint_magnifier(&mut canvas, view, (2.5, 3.0), magnifier, &image, &layout);
         let cell = magnifier.cell as usize;
-        // Top left of the box is 24 px past the cursor, inside the 1 px frame, center cell + 1.
         let (x, y) = (2 + 24 + 1 + cell + 1, 3 + 24 + 1 + cell + 1);
         let start = (y * 400 + x) * 4;
         assert_eq!(canvas[start..start + 4], [30, 20, 10, 0xFF]);

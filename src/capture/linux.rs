@@ -17,13 +17,10 @@ pub async fn screen() -> Result<Vec<u8>> {
     portal(false).await
 }
 
-/// The desktop's own selector, for compositors without layer-shell.
 pub async fn picker() -> Result<Vec<u8>> {
     portal(true).await
 }
 
-// shortcut: crops the full capture, so anything on top of the window shows up.
-// Upgrade to hyprland_toplevel_export_v1 if that matters.
 pub async fn window() -> Result<Vec<u8>> {
     let (area, layout) = (active_window()?, monitor_areas(&monitors()?));
     crop(&portal(false).await?, area, &layout)
@@ -58,8 +55,6 @@ async fn portal(interactive: bool) -> Result<Vec<u8>> {
     Ok(png?)
 }
 
-/// xdph leaves captures in the runtime dir. Other backends may save to the user's pictures,
-/// and those files are not ours to delete.
 fn remove_if_temporary(path: &Path) {
     if dirs::runtime_dir().is_some_and(|runtime| path.starts_with(runtime)) {
         std::fs::remove_file(path).ok();
@@ -88,7 +83,6 @@ struct Monitor {
 
 impl Monitor {
     fn area(&self) -> Area {
-        // Hyprland reports unrotated pixels, odd transforms swap the sides.
         let (width, height) = match self.transform % 2 {
             0 => (self.width, self.height),
             _ => (self.height, self.width),
@@ -111,7 +105,6 @@ struct ActiveWindow {
     pid: Option<i32>,
 }
 
-/// None off Hyprland or without a focused window, a name pattern is no reason to fail a capture.
 pub fn active_window_names() -> Option<Window> {
     let window: ActiveWindow = hyprctl("activewindow").ok()?;
     let process = window
@@ -143,7 +136,6 @@ struct Client {
     focus_history_id: i32,
 }
 
-/// The windows on screen, topmost first.
 pub fn visible_windows() -> Result<Vec<Area>> {
     let visible: Vec<i32> = monitors()?
         .iter()
@@ -152,8 +144,6 @@ pub fn visible_windows() -> Result<Vec<Area>> {
     Ok(stack_windows(hyprctl("clients")?, &visible))
 }
 
-/// shortcut: Hyprland does not report the stacking order, so this assumes floating windows are on
-/// top and otherwise the most recently focused wins. Overlapping windows can pick the wrong one.
 fn stack_windows(mut clients: Vec<Client>, workspaces: &[i32]) -> Vec<Area> {
     clients.retain(|client| {
         client.mapped && !client.hidden && workspaces.contains(&client.workspace.id)

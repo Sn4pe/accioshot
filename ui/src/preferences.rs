@@ -8,7 +8,6 @@ use serde::Serialize;
 pub struct Preferences {
     config: Config,
     uploaders: Vec<String>,
-    /// Only macOS needs a shortcut of its own, elsewhere the compositor has them.
     has_hotkey: bool,
 }
 
@@ -30,7 +29,6 @@ pub fn save_preferences(config: Config) -> Result<()> {
 pub fn open_config() -> Result<()> {
     let path = config::path()?;
     if !path.exists() {
-        // The desktop cannot open a file that is not there yet.
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }

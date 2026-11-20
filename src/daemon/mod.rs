@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The tray. Captures still run as `accioshot capture`, here and from key bindings, so both write
-//! the same history and a crash in a capture cannot take the tray down.
-
 #[cfg(target_os = "linux")]
 #[path = "linux.rs"]
 mod platform;
@@ -24,7 +21,6 @@ use crate::history::{self, Entry};
 
 const RECENT_COUNT: usize = 10;
 const HISTORY_POLL: Duration = Duration::from_secs(2);
-// Otherwise the frozen capture can include the tray menu while it closes.
 const MENU_CLOSE_DELAY: Duration = Duration::from_millis(250);
 const MODES: [(&str, Mode); 5] = [
     ("Region", Mode::Region),
@@ -34,13 +30,11 @@ const MODES: [(&str, Mode); 5] = [
     ("All monitors", Mode::Screen),
 ];
 
-/// Held until the process exits, the kernel releases it even after a crash.
 fn single_instance() -> Result<File> {
     lock("accioshot.lock")?.ok_or_else(|| "accioshot daemon is already running".into())
 }
 
 pub(crate) fn lock(name: &str) -> Result<Option<File>> {
-    // macOS has no runtime directory, and its temporary one is already per user.
     let dir = match cfg!(target_os = "macos") {
         true => std::env::temp_dir(),
         false => dirs::runtime_dir().ok_or("XDG_RUNTIME_DIR is not set")?,
@@ -70,7 +64,6 @@ fn entry_label(entry: &Entry) -> String {
         .unwrap_or_else(|| entry.time.clone())
 }
 
-/// What clicking a recent capture copies.
 fn entry_text(entry: &Entry) -> String {
     entry
         .url
@@ -96,7 +89,6 @@ fn spawn_capture(exe: PathBuf, mode: Mode, delay: Duration) {
 
 static OPEN_WINDOWS: Mutex<Vec<(&'static str, u32)>> = Mutex::new(Vec::new());
 
-/// `window` is `history` or `settings`.
 fn spawn_ui(window: &'static str) {
     let mut open = OPEN_WINDOWS
         .lock()

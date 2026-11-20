@@ -20,20 +20,15 @@ mod platform {
         copy(png.to_vec(), MimeType::Specific("image/png".into()))
     }
 
-    /// On Wayland the clipboard is served by whoever set it, so a detached child keeps doing that
-    /// after we exit, until something else takes the clipboard. Same approach as wl-copy.
     fn copy(data: Vec<u8>, mime: MimeType) -> Result<()> {
         let mut options = Options::new();
         options.foreground(true);
         let prepared = options.prepare_copy(Source::Bytes(data.into()), mime)?;
         let dev_null = File::options().read(true).write(true).open("/dev/null")?;
 
-        // SAFETY: the process is single threaded here, and the child only makes plain syscalls
-        // before serving.
         match unsafe { libc::fork() } {
             -1 => Err(io::Error::last_os_error().into()),
             0 => {
-                // Inherited stdio would keep `url=$(accioshot ...)` waiting for the child.
                 unsafe {
                     libc::setsid();
                     for fd in 0..=2 {
@@ -59,7 +54,6 @@ mod platform {
     use crate::Result;
 
     pub fn copy_text(text: String) -> Result<()> {
-        // pbcopy decodes its input by locale, and launchd starts us without one.
         let mut child = Command::new("pbcopy")
             .env("LC_ALL", "en_US.UTF-8")
             .stdin(Stdio::piped())

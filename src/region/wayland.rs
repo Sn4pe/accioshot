@@ -35,7 +35,6 @@ const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
 const MAX_ROUNDTRIPS: usize = 10;
 
-/// False on compositors without layer-shell, such as GNOME.
 pub fn available() -> bool {
     let Ok(connection) = Connection::connect_to_env() else {
         return false;
@@ -46,8 +45,6 @@ pub fn available() -> bool {
     LayerShell::bind(&globals, &queue.handle()).is_ok()
 }
 
-/// Returns the selected area and the monitor layout it refers to, or None if cancelled. `windows`
-/// can be clicked instead of dragging, topmost first.
 pub fn select(
     image: &RgbaImage,
     windows: Vec<Area>,

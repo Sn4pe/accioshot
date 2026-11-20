@@ -81,13 +81,11 @@ pub async fn capture(mode: Mode, options: &RegionConfig) -> Result<Vec<u8>> {
     }
 }
 
-/// shortcut: the desktop's own picker does not tell us the area, so only our selector remembers it.
 async fn select_region(options: &RegionConfig) -> Result<Vec<u8>> {
     #[cfg(target_os = "linux")]
     if !region::available() {
         return platform::picker().await;
     }
-    // Before the capture, so they match what gets frozen. Off Hyprland on Linux there are none.
     let windows = match options.snap_windows {
         true => platform::visible_windows().unwrap_or_default(),
         false => Vec::new(),
@@ -103,15 +101,12 @@ async fn select_region(options: &RegionConfig) -> Result<Vec<u8>> {
         rect,
         image: [image.width(), image.height()],
     };
-    // The capture is fine without it.
     if let Err(error) = last.save() {
         eprintln!("accioshot: cannot remember the region: {error}");
     }
     encode_crop(&image, rect)
 }
 
-/// Pixels instead of the logical area: replaying it needs no monitor layout, and a screen of
-/// another size is caught by comparing the image.
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 struct LastRegion {
     rect: [u32; 4],
@@ -171,8 +166,6 @@ pub(crate) fn encode_crop(
     Ok(output)
 }
 
-/// Maps a logical area to pixels in the image of all monitors. The factor comes from the image
-/// because with mixed scales the capture uses the largest one.
 pub(crate) fn pixel_rect(
     area: Area,
     areas: &[Area],

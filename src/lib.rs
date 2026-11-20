@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! What `accioshot` and `accioshot-ui` share.
-
 pub mod config;
 pub mod editor;
 pub mod fs;

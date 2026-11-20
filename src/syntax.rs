@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//
 // Ported from ShareX.UploadersLib/CustomUploader (ShareXSyntaxParser and Functions).
 // Copyright (c) 2007-2026 ShareX Team
 // Copyright (c) 2026 David
@@ -102,7 +101,6 @@ impl<'a> Parser<'a> {
             "" => Err("function name cannot be empty".into()),
             "filename" if self.encode_file_name => Ok(url_encode(self.file_name)),
             "filename" => Ok(self.file_name.to_string()),
-            // Only text uploads have an input, a capture never does.
             "input" => Ok(String::new()),
             "base64" => match parameters {
                 [text, ..] => Ok(base64(text.as_bytes())),
@@ -163,8 +161,6 @@ fn json(input: &str, path: &str) -> Result<String> {
     })
 }
 
-/// shortcut: supports `a.b[0]['c']`, not JSONPath filters or wildcards. Add them if a real
-/// uploader needs them.
 fn select<'a>(root: &'a Value, path: &str) -> Result<Option<&'a Value>> {
     let path = path
         .strip_prefix("$.")
