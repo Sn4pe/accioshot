@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -282,13 +283,9 @@ impl Config {
         if let Some(dir) = target.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        let temporary = target.with_extension("toml.partial");
-        std::fs::write(&temporary, text)
+        let mode = permissions.map_or(0o666, |permissions| permissions.mode());
+        crate::fs::write_atomically(&target, text.as_bytes(), mode)
             .map_err(|error| format!("cannot write {}: {error}", target.display()))?;
-        if let Ok(permissions) = permissions {
-            std::fs::set_permissions(&temporary, permissions)?;
-        }
-        std::fs::rename(temporary, &target)?;
         Ok(())
     }
 

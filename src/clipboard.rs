@@ -51,10 +51,10 @@ mod platform {
 
 #[cfg(target_os = "macos")]
 mod platform {
-    use std::fs::OpenOptions;
     use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
     use std::process::{Command, Stdio};
+
+    use accioshot::fs::PrivateDir;
 
     use crate::Result;
 
@@ -76,17 +76,9 @@ mod platform {
     }
 
     pub fn copy_image(png: &[u8]) -> Result<()> {
-        let path =
-            std::env::temp_dir().join(format!("accioshot-clipboard-{}.png", std::process::id()));
-        // A killed run with this same pid leaves its file behind.
-        std::fs::remove_file(&path).ok();
-        // 0600: this is a screenshot, it may hold anything.
-        OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&path)?
-            .write_all(png)?;
+        let dir = PrivateDir::new("accioshot-clipboard")?;
+        let path = dir.path().join("capture.png");
+        std::fs::write(&path, png)?;
         let output = Command::new("osascript")
             .env("LC_ALL", "en_US.UTF-8")
             .args([
@@ -98,9 +90,7 @@ mod platform {
                 "end run",
             ])
             .arg(&path)
-            .output();
-        std::fs::remove_file(&path).ok();
-        let output = output?;
+            .output()?;
         if !output.status.success() {
             let error = String::from_utf8_lossy(&output.stderr);
             return Err(format!("cannot copy the image: {}", error.trim()).into());

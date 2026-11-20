@@ -2,12 +2,11 @@
 
 //! Captures with the system's `screencapture`.
 
-use std::fs::DirBuilder;
 use std::io::Cursor;
-use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use accioshot::fs::PrivateDir;
 use core_foundation::array::CFArray;
 use core_foundation::base::{CFType, ItemRef, TCFType};
 use core_foundation::dictionary::CFDictionary;
@@ -105,19 +104,8 @@ fn in_temporary_dir(capture: impl FnOnce(&Path) -> Result<Vec<u8>>) -> Result<Ve
                 .into(),
         );
     }
-    let dir = temporary_dir()?;
-    let result = capture(&dir);
-    std::fs::remove_dir_all(&dir).ok();
-    result
-}
-
-/// 0700: this is a screenshot, it may hold anything.
-fn temporary_dir() -> Result<PathBuf> {
-    let dir = std::env::temp_dir().join(format!("accioshot-capture-{}", std::process::id()));
-    // A killed run with this same pid leaves its directory behind.
-    std::fs::remove_dir_all(&dir).ok();
-    DirBuilder::new().mode(0o700).create(&dir)?;
-    Ok(dir)
+    let dir = PrivateDir::new("accioshot-capture")?;
+    capture(dir.path())
 }
 
 /// shortcut: assumes the files and `-D` follow the active display list, untested with two monitors.

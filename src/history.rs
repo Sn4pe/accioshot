@@ -72,16 +72,7 @@ fn remove_from(path: &Path, entries: &[Entry]) -> Result<bool> {
     if kept.len() == text.len() {
         return Ok(false);
     }
-    let temporary = path.with_extension("partial");
-    std::fs::remove_file(&temporary).ok();
-    // 0600: deletion URLs let anyone remove the upload.
-    OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .mode(0o600)
-        .open(&temporary)?
-        .write_all(kept.as_bytes())?;
-    std::fs::rename(temporary, path)?;
+    crate::fs::write_atomically(path, kept.as_bytes(), 0o600)?;
     Ok(true)
 }
 

@@ -68,34 +68,12 @@ fn write_output(request: &Request, output: &Path) -> Result<(), String> {
     let InvokeBody::Raw(png) = request.body() else {
         return Err("expected the image as raw bytes".to_string());
     };
-    write_atomically(output, png).map_err(|error| format!("cannot save: {error}"))
-}
-
-/// accioshot treats a missing output as discarded, so it must never see a partial file.
-fn write_atomically(path: &Path, data: &[u8]) -> std::io::Result<()> {
-    let temporary = path.with_extension("partial");
-    std::fs::write(&temporary, data)?;
-    std::fs::rename(temporary, path)
+    accioshot::fs::write_atomically(output, png, 0o600)
+        .map_err(|error| format!("cannot save: {error}"))
 }
 
 /// Closing before the image appeared is a failure, not a choice: accioshot must keep the capture.
 #[tauri::command]
 pub fn discard(loaded: bool, app: AppHandle) {
     app.exit(if loaded { 0 } else { 1 });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn atomic_write_leaves_only_the_result() {
-        let dir = std::env::temp_dir().join(format!("accioshot-atomic-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("output.png");
-        write_atomically(&path, b"data").unwrap();
-        assert_eq!(std::fs::read(&path).unwrap(), b"data");
-        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
-        std::fs::remove_dir_all(dir).unwrap();
-    }
 }
