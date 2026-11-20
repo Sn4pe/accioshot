@@ -93,8 +93,7 @@ pub fn select(
     let app = NSApplication::sharedApplication(mtm);
     app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
     app.finishLaunching();
-    #[allow(deprecated)]
-    app.activateIgnoringOtherApps(true);
+    app.activate();
     NSCursor::crosshairCursor().set();
 
     let mut screens = Vec::new();

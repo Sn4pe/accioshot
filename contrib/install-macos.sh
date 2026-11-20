@@ -49,6 +49,8 @@ cat > "$BUNDLE/Contents/Info.plist" <<EOF
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
     <string>$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSHighResolutionCapable</key>

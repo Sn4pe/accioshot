@@ -53,7 +53,7 @@ jobs:
         run: |
           found=0
           rg -n '^\s*//' src ui/src | rg -v 'SPDX-License-Identifier|Ported from ShareX|Copyright \(c\)' && found=1
-          rg -n 'allow\(|expect\(clippy' src ui/src && found=1
+          rg -n '#!?\[(allow|expect)\(|cfg_attr\(.*(allow|expect)\(' src ui/src && found=1
           rg -n '(^|\s)//|/\*|<!--|svelte-ignore|eslint-disable|@ts-ignore|@ts-expect-error' ui/web/src | rg -v 'SPDX-License-Identifier' && found=1
           exit $found
       - run: cargo fmt --all --check
