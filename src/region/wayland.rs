@@ -33,6 +33,7 @@ use crate::capture::Area;
 
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
+const MAX_ROUNDTRIPS: usize = 10;
 
 /// False on compositors without layer-shell, such as GNOME.
 pub fn available() -> bool {
@@ -78,9 +79,17 @@ pub fn select(
         failure: None,
     };
 
-    // Outputs and their logical geometry arrive in separate rounds.
-    queue.roundtrip(&mut overlay)?;
-    queue.roundtrip(&mut overlay)?;
+    for _ in 0..MAX_ROUNDTRIPS {
+        queue.roundtrip(&mut overlay)?;
+        if overlay.output_state.outputs().all(|output| {
+            overlay
+                .output_state
+                .info(&output)
+                .is_some_and(|info| info.logical_position.is_some() && info.logical_size.is_some())
+        }) {
+            break;
+        }
+    }
 
     for output in overlay.output_state.outputs() {
         let info = overlay
