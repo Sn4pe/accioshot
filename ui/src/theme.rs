@@ -65,7 +65,7 @@ fn reports_dark(window: &WebviewWindow) -> bool {
 }
 
 /// Perceived brightness, each channel from 0 to 1.
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+#[cfg(any(target_os = "linux", test))]
 fn is_dark_color(red: f64, green: f64, blue: f64) -> bool {
     0.299 * red + 0.587 * green + 0.114 * blue < 0.5
 }
