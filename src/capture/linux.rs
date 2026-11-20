@@ -53,9 +53,9 @@ async fn portal(interactive: bool) -> Result<Vec<u8>> {
     let path = Url::parse(response.uri().as_str())?
         .to_file_path()
         .map_err(|_| "the portal did not return a local file")?;
-    let png = std::fs::read(&path)?;
+    let png = std::fs::read(&path);
     remove_if_temporary(&path);
-    Ok(png)
+    Ok(png?)
 }
 
 /// xdph leaves captures in the runtime dir. Other backends may save to the user's pictures,
