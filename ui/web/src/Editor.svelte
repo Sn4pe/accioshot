@@ -34,7 +34,16 @@
     type Text,
     type Tool,
   } from './lib/model'
-  import { dashedRect, exportPng, imageRect, LINE_HEIGHT, measureText, renderDoc, renderSelection, viewRect } from './lib/render'
+  import {
+    dashedRect,
+    exportPng,
+    imageRect,
+    LINE_HEIGHT,
+    measureText,
+    renderDoc,
+    renderSelection,
+    viewRect,
+  } from './lib/render'
   import { cursorFor } from './lib/tools'
   import { centered, clampOrigin, fitScale, stepScale, zoomAt } from './lib/viewport'
 
@@ -286,7 +295,14 @@
   function startText(at: Point, existing: Text | null = null) {
     const current = styleOf('Text')
     editing = existing
-      ? { id: existing.id, at: existing.at, text: existing.text, color: existing.color, size: existing.size, font: existing.font }
+      ? {
+          id: existing.id,
+          at: existing.at,
+          text: existing.text,
+          color: existing.color,
+          size: existing.size,
+          font: existing.font,
+        }
       : { id: null, at, text: '', color: current.color, size: current.size, font: settings!.font_family }
     selectedIds = existing ? [existing.id] : []
   }
@@ -423,7 +439,8 @@
       case 'resize': {
         const { id, handle } = gesture
         const original = doc.annotations.find((a) => a.id === id)
-        if (original) preview = setAnnotation(doc, resized(original, handle, p, SIZE_RANGES[original.kind] ?? [1, Infinity]))
+        if (original)
+          preview = setAnnotation(doc, resized(original, handle, p, SIZE_RANGES[original.kind] ?? [1, Infinity]))
         break
       }
       case 'select': {
@@ -573,7 +590,10 @@
   }
 
   async function rememberState() {
-    if (settings?.remember_last) await invoke('save_state', { state: { tool, styles } }).catch((error: unknown) => console.error('save_state:', error))
+    if (settings?.remember_last)
+      await invoke('save_state', { state: { tool, styles } }).catch((error: unknown) =>
+        console.error('save_state:', error),
+      )
   }
 
   async function finishDiscard() {
@@ -700,7 +720,8 @@
     sheet.height = Math.round(view.height)
     // The text being edited lives in the textarea until it is committed.
     const hidden = editing?.id ?? null
-    const visible = hidden === null ? shown : { ...shown, annotations: shown.annotations.filter((a) => a.id !== hidden) }
+    const visible =
+      hidden === null ? shown : { ...shown, annotations: shown.annotations.filter((a) => a.id !== hidden) }
     renderDoc(sheet.getContext('2d')!, visible, image, size, draft)
     sheetVersion = untrack(() => sheetVersion) + 1
   })
@@ -883,7 +904,12 @@
         >
           Copy
         </button>
-        <button class="primary" title={'Save' + shortcut('save')} disabled={!image || saving} onclick={() => finish('save')}>
+        <button
+          class="primary"
+          title={'Save' + shortcut('save')}
+          disabled={!image || saving}
+          onclick={() => finish('save')}
+        >
           Save
         </button>
       {/if}
@@ -923,8 +949,7 @@
           style:font-size="{editorBox.font}px"
           style:font-family={editing.font}
           style:line-height={LINE_HEIGHT}
-          style:color={editing.color}
-        ></textarea>
+          style:color={editing.color}></textarea>
       {/if}
     {/if}
   </main>
@@ -974,7 +999,9 @@
     height: 32px;
     border-radius: 4px;
     color: var(--muted);
-    transition: color 100ms, background-color 100ms;
+    transition:
+      color 100ms,
+      background-color 100ms;
   }
   .tool:hover:not(:disabled) {
     color: var(--text);

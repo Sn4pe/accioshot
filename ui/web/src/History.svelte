@@ -88,7 +88,12 @@
     const group = selected.has(entryKey(item.entry)) ? chosen : [item]
     const paths = group.filter((one) => one.exists).map((one) => one.entry.path!)
     try {
-      await invoke('plugin:drag|start_drag', { item: paths, image: icon, options: { mode: 'copy' }, onEvent: new Channel() })
+      await invoke('plugin:drag|start_drag', {
+        item: paths,
+        image: icon,
+        options: { mode: 'copy' },
+        onEvent: new Channel(),
+      })
     } catch (error) {
       failure = String(error)
     }
@@ -139,7 +144,9 @@
     const key = entryKey(entry)
     const how = event.metaKey || event.ctrlKey ? 'toggle' : event.shiftKey ? 'range' : 'one'
     const keys = order.map((item) => entryKey(item.entry))
-    setSelection(how === 'one' && current && same(current.entry, entry) ? new Set() : pick(selected, keys, key, anchor, how))
+    setSelection(
+      how === 'one' && current && same(current.entry, entry) ? new Set() : pick(selected, keys, key, anchor, how),
+    )
     if (how !== 'range' || anchor === null) anchor = key
     confirming = false
     failure = ''
@@ -194,12 +201,10 @@
       swallowSpace = true
       viewing = 'preview'
       return
-    }
-    else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
       if (current.exists) open('file')
       else if (current.entry.url) open('url')
-    }
-    else if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
+    } else if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
       if (current.exists) copy('image', 'Image copied')
       else if (current.entry.url) copy('url', 'URL copied')
     }
@@ -216,10 +221,7 @@
   })
 </script>
 
-<svelte:window
-  onkeydown={onKeyDown}
-  onkeyup={(event) => event.key === ' ' && swallowSpace && event.preventDefault()}
-/>
+<svelte:window onkeydown={onKeyDown} onkeyup={(event) => event.key === ' ' && swallowSpace && event.preventDefault()} />
 
 <div class="history">
   <header>

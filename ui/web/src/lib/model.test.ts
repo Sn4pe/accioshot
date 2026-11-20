@@ -92,9 +92,24 @@ describe('handles', () => {
   })
 
   it('scales text from its corner', () => {
-    const text: Annotation = { id: 1, kind: 'Text', at: { x: 0, y: 0 }, text: 'hi', color: '#000', size: 20, font: 'sans', width: 40, height: 25 }
+    const text: Annotation = {
+      id: 1,
+      kind: 'Text',
+      at: { x: 0, y: 0 },
+      text: 'hi',
+      color: '#000',
+      size: 20,
+      font: 'sans',
+      width: 40,
+      height: 25,
+    }
     expect(handles(text)).toEqual([{ id: 'b', at: { x: 40, y: 25 } }])
-    expect(resized(text, 'b', { x: 0, y: 50 }, [10, 160])).toMatchObject({ size: 40, width: 80, height: 50, at: { x: 0, y: 0 } })
+    expect(resized(text, 'b', { x: 0, y: 50 }, [10, 160])).toMatchObject({
+      size: 40,
+      width: 80,
+      height: 50,
+      at: { x: 0, y: 0 },
+    })
   })
 })
 
@@ -102,7 +117,12 @@ describe('steps', () => {
   it('renumber when one goes away', () => {
     const all = [step(5), step(6), step(7)]
     expect(stepNumber(all, 7)).toBe(3)
-    expect(stepNumber(all.filter((a) => a.id !== 5), 7)).toBe(2)
+    expect(
+      stepNumber(
+        all.filter((a) => a.id !== 5),
+        7,
+      ),
+    ).toBe(2)
   })
 
   it('keep their numbers across layers', () => {

@@ -20,7 +20,11 @@ const effects = [
   },
 ]
 
-const untrack = { name: 'svelte', importNames: ['untrack'], message: 'Read the value outside the reactive scope instead.' }
+const untrack = {
+  name: 'svelte',
+  importNames: ['untrack'],
+  message: 'Read the value outside the reactive scope instead.',
+}
 const core = { name: '@tauri-apps/api/core', message: 'Only src/ipc.ts imports @tauri-apps/api/core.' }
 const pure = [
   { group: ['@tauri-apps/api', '@tauri-apps/api/*'], message: 'src/lib is pure, Tauri goes through src/ipc.ts.' },

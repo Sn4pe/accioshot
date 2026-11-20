@@ -35,7 +35,10 @@ export function title(entry: Entry): string {
 /** Every word has to appear somewhere, in any order, ignoring case. */
 export function matches(entry: Entry, query: string): boolean {
   const haystack = [entry.path, entry.url, entry.time].filter(Boolean).join(' ').toLowerCase()
-  return query.toLowerCase().split(/\s+/).every((word) => haystack.includes(word))
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .every((word) => haystack.includes(word))
 }
 
 export function clock(time: string): string {
@@ -74,7 +77,13 @@ export function byDay(items: Item[], today = new Date()): Day[] {
 
 export type Pick = 'one' | 'toggle' | 'range'
 
-export function pick(selected: ReadonlySet<string>, order: string[], key: string, anchor: string | null, how: Pick): Set<string> {
+export function pick(
+  selected: ReadonlySet<string>,
+  order: string[],
+  key: string,
+  anchor: string | null,
+  how: Pick,
+): Set<string> {
   if (how === 'toggle') {
     const next = new Set(selected)
     if (!next.delete(key)) next.add(key)

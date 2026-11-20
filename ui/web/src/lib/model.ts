@@ -26,15 +26,7 @@ export type Annotation = Shape | Freehand | Text | Step
 export type Doc = { annotations: Annotation[]; crop: Rect | null }
 export const EMPTY_DOC: Doc = { annotations: [], crop: null }
 
-export const SHAPE_KINDS: readonly string[] = [
-  'Rectangle',
-  'Ellipse',
-  'Line',
-  'Arrow',
-  'Highlight',
-  'Blur',
-  'Pixelate',
-]
+export const SHAPE_KINDS: readonly string[] = ['Rectangle', 'Ellipse', 'Line', 'Arrow', 'Highlight', 'Blur', 'Pixelate']
 
 export function isShape(annotation: Annotation): annotation is Shape {
   return SHAPE_KINDS.includes(annotation.kind)
@@ -238,7 +230,9 @@ export function reordered(annotations: Annotation[], ids: number[], layer: Layer
 /** Fully inside `rect`, like a selection box in a drawing program. */
 export function inside(annotation: Annotation, rect: Rect): boolean {
   const b = bounds(annotation)
-  return b.x >= rect.x && b.y >= rect.y && b.x + b.width <= rect.x + rect.width && b.y + b.height <= rect.y + rect.height
+  return (
+    b.x >= rect.x && b.y >= rect.y && b.x + b.width <= rect.x + rect.width && b.y + b.height <= rect.y + rect.height
+  )
 }
 
 export function clampRect(rect: Rect, limit: Rect): Rect {

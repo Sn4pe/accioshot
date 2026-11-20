@@ -10,7 +10,10 @@ export function fitScale(view: Rect, stage: Size, margin: number): number {
 }
 
 export function centered(view: Rect, stage: Size, scale: number): Point {
-  return { x: view.x + view.width / 2 - stage.width / scale / 2, y: view.y + view.height / 2 - stage.height / scale / 2 }
+  return {
+    x: view.x + view.width / 2 - stage.width / scale / 2,
+    y: view.y + view.height / 2 - stage.height / scale / 2,
+  }
 }
 
 function clampAxis(origin: number, start: number, length: number, visible: number, margin: number) {

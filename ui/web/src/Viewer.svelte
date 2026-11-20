@@ -148,7 +148,14 @@
 <svelte:window onkeydown={onKeyDown} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="viewer" class:preview role="dialog" aria-label={preview ? 'Preview' : 'Viewer'} tabindex="-1" onclick={onclose}>
+<div
+  class="viewer"
+  class:preview
+  role="dialog"
+  aria-label={preview ? 'Preview' : 'Viewer'}
+  tabindex="-1"
+  onclick={onclose}
+>
   <div class="stage" bind:this={stage} bind:clientWidth={stageWidth} bind:clientHeight={stageHeight}>
     {#if src}
       <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->

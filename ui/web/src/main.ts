@@ -13,7 +13,8 @@ const WINDOWS = { edit: Editor, history: History, settings: Settings }
 // for cut and paste, and dev builds keep it for the inspector.
 if (!import.meta.env.DEV) {
   document.addEventListener('contextmenu', (event) => {
-    if (!(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement)) event.preventDefault()
+    if (!(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement))
+      event.preventDefault()
   })
 }
 

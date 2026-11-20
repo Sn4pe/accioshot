@@ -1,5 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { bounds, clampRect, handles, rectBetween, stepNumber, type Annotation, type Doc, type Rect, type Shape, type Text } from './model'
+import {
+  bounds,
+  clampRect,
+  handles,
+  rectBetween,
+  stepNumber,
+  type Annotation,
+  type Doc,
+  type Rect,
+  type Shape,
+  type Text,
+} from './model'
 
 export const LINE_HEIGHT = 1.25
 const ARROW_HEAD_LENGTH = 5
@@ -71,7 +82,17 @@ function drawPixelate(ctx: CanvasRenderingContext2D, shape: Shape, view: Rect) {
   const area = effectArea(ctx, shape, view)
   if (!area) return
   const { canvas: small, ctx: smallCtx } = scratch(area.rect.width / shape.size, area.rect.height / shape.size)
-  smallCtx.drawImage(area.canvas, area.source.x, area.source.y, area.source.width, area.source.height, 0, 0, small.width, small.height)
+  smallCtx.drawImage(
+    area.canvas,
+    area.source.x,
+    area.source.y,
+    area.source.width,
+    area.source.height,
+    0,
+    0,
+    small.width,
+    small.height,
+  )
   ctx.save()
   ctx.imageSmoothingEnabled = false
   ctx.drawImage(small, area.rect.x, area.rect.y, area.rect.width, area.rect.height)
@@ -86,7 +107,17 @@ function drawBlur(ctx: CanvasRenderingContext2D, shape: Shape, view: Rect) {
   const area = effectArea(ctx, shape, view)
   if (!area) return
   const levels = [scratch(area.rect.width, area.rect.height)]
-  levels[0].ctx.drawImage(area.canvas, area.source.x, area.source.y, area.source.width, area.source.height, 0, 0, levels[0].canvas.width, levels[0].canvas.height)
+  levels[0].ctx.drawImage(
+    area.canvas,
+    area.source.x,
+    area.source.y,
+    area.source.width,
+    area.source.height,
+    0,
+    0,
+    levels[0].canvas.width,
+    levels[0].canvas.height,
+  )
   for (let factor = 2; factor < shape.size * 2; factor *= 2) {
     const next = scratch(area.rect.width / factor, area.rect.height / factor)
     next.ctx.drawImage(levels[levels.length - 1].canvas, 0, 0, next.canvas.width, next.canvas.height)
@@ -200,7 +231,12 @@ export function renderDoc(
  * Selection marks, in image pixels but sized for the current zoom. Not part of the export.
  * Part of a multiple selection, shapes get a box instead of their handles.
  */
-export function renderSelection(ctx: CanvasRenderingContext2D, annotation: Annotation, scale: number, withHandles = true) {
+export function renderSelection(
+  ctx: CanvasRenderingContext2D,
+  annotation: Annotation,
+  scale: number,
+  withHandles = true,
+) {
   const pixel = 1 / scale
   ctx.save()
   if (!withHandles || annotation.kind === 'Text' || annotation.kind === 'Step' || annotation.kind === 'Freehand') {
@@ -244,7 +280,12 @@ function padded(r: Rect, margin: number): Rect {
 
 function box(annotation: Text | Extract<Annotation, { kind: 'Step' }>): Rect {
   if (annotation.kind === 'Text') {
-    return { x: annotation.at.x - 4, y: annotation.at.y - 4, width: annotation.width + 8, height: annotation.height + 8 }
+    return {
+      x: annotation.at.x - 4,
+      y: annotation.at.y - 4,
+      width: annotation.width + 8,
+      height: annotation.height + 8,
+    }
   }
   const half = annotation.size / 2 + 4
   return { x: annotation.at.x - half, y: annotation.at.y - half, width: half * 2, height: half * 2 }

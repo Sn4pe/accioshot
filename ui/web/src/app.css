@@ -115,7 +115,9 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 13px/1.4 system-ui, sans-serif;
+  font:
+    13px/1.4 system-ui,
+    sans-serif;
   overflow: hidden;
   user-select: none;
   -webkit-user-select: none;

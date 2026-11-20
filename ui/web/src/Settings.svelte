@@ -212,11 +212,25 @@
         </label>
         <label class="row">
           <span class="name">Magnifier size</span>
-          <input class="number" type="number" min="1" step="1" disabled={!config.region.magnifier} bind:value={config.region.magnifier_size} />
+          <input
+            class="number"
+            type="number"
+            min="1"
+            step="1"
+            disabled={!config.region.magnifier}
+            bind:value={config.region.magnifier_size}
+          />
         </label>
         <label class="row">
           <span class="name">Pixels across</span>
-          <input class="number" type="number" min="1" step="1" disabled={!config.region.magnifier} bind:value={config.region.magnifier_pixels} />
+          <input
+            class="number"
+            type="number"
+            min="1"
+            step="1"
+            disabled={!config.region.magnifier}
+            bind:value={config.region.magnifier_pixels}
+          />
         </label>
         {#if hasHotkey}
           <label class="row">
@@ -243,7 +257,12 @@
           <label class="row">
             <span class="name">Command</span>
             <span class="stack">
-              <input type="text" spellcheck="false" placeholder={'satty --filename {input} --output-filename {output}'} bind:value={config.editor.command} />
+              <input
+                type="text"
+                spellcheck="false"
+                placeholder={'satty --filename {input} --output-filename {output}'}
+                bind:value={config.editor.command}
+              />
               <small>&#123;input&#125; and &#123;output&#125; become the file paths.</small>
             </span>
           </label>
