@@ -111,6 +111,7 @@
     else if (action === 'zoom_fit') setZoom(null)
     else return
     event.preventDefault()
+    event.stopPropagation()
   }
 
   onMount(() => {
@@ -135,6 +136,8 @@
   })
 </script>
 
+<svelte:window onkeydown={onKeyDown} />
+
 <div
   class="viewer"
   class:preview
@@ -143,7 +146,6 @@
   tabindex="-1"
   onclick={closeOutside}
   onkeydown={onKeyDown}
-  {@attach (node) => node.focus()}
 >
   <div class="stage" bind:this={stage} onwheel={onWheel} bind:clientWidth={stageWidth} bind:clientHeight={stageHeight}>
     {#if src}
