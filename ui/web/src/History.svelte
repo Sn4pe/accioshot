@@ -94,12 +94,13 @@
     }
   }
 
-  $effect(() => {
-    if (!current) viewing = null
-  })
+  function setSelection(next: Set<string>) {
+    selected = next
+    if (next.size !== 1) viewing = null
+  }
 
   function view(item: Item) {
-    selected = new Set([entryKey(item.entry)])
+    setSelection(new Set([entryKey(item.entry)]))
     anchor = entryKey(item.entry)
     viewing = 'full'
   }
@@ -107,7 +108,7 @@
   function step(by: number) {
     const next = order[position < 0 ? 0 : Math.min(Math.max(position + by, 0), order.length - 1)]
     if (!next) return
-    selected = new Set([entryKey(next.entry)])
+    setSelection(new Set([entryKey(next.entry)]))
     anchor = entryKey(next.entry)
     confirming = false
     tick().then(() => document.querySelector('.frame.selected')?.scrollIntoView({ block: 'nearest' }))
@@ -117,12 +118,16 @@
     if (!chosen.length) return
     const entries = chosen.map((item) => item.entry)
     const next = current && (order[position + 1] ?? order[position - 1])
+    const wasViewing = viewing
     confirming = false
     try {
       const failures = await invoke<string[]>('delete_entries', { entries, deleteFile })
-      selected = new Set()
+      setSelection(new Set())
       await refresh()
-      if (viewing && next) selected = new Set([entryKey(next.entry)])
+      if (wasViewing && next) {
+        setSelection(new Set([entryKey(next.entry)]))
+        viewing = wasViewing
+      }
       if (failures.length) failure = failures.join('\n')
       else say(deleteFile ? 'Deleted' : 'Removed from history')
     } catch (error) {
@@ -134,14 +139,14 @@
     const key = entryKey(entry)
     const how = event.metaKey || event.ctrlKey ? 'toggle' : event.shiftKey ? 'range' : 'one'
     const keys = order.map((item) => entryKey(item.entry))
-    selected = how === 'one' && current && same(current.entry, entry) ? new Set() : pick(selected, keys, key, anchor, how)
+    setSelection(how === 'one' && current && same(current.entry, entry) ? new Set() : pick(selected, keys, key, anchor, how))
     if (how !== 'range' || anchor === null) anchor = key
     confirming = false
     failure = ''
   }
 
   function cleanUp() {
-    selected = new Set(missing.map((item) => entryKey(item.entry)))
+    setSelection(new Set(missing.map((item) => entryKey(item.entry))))
     confirming = true
     failure = ''
   }
@@ -168,13 +173,13 @@
     if (event.key === 'Escape') {
       if (confirming) confirming = false
       else if (query) query = ''
-      else selected = new Set()
+      else setSelection(new Set())
       return
     }
     if (event.target instanceof HTMLInputElement) return
     if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
       event.preventDefault()
-      selected = new Set(shown.map((item) => entryKey(item.entry)))
+      setSelection(new Set(shown.map((item) => entryKey(item.entry))))
       return
     }
     if (chosen.length && (event.key === 'Delete' || event.key === 'Backspace')) confirming = true
