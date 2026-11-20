@@ -276,8 +276,11 @@ fn run(args: CaptureArgs) -> Result<()> {
                 Ok(uploaded) => Some(uploaded),
                 Err(error) => {
                     // Don't lose the capture if it only existed for the upload.
-                    return Err(match saved {
-                        Some(_) => error,
+                    return Err(match &saved {
+                        Some(path) => {
+                            remember(&now.to_rfc3339(), Some(path), None);
+                            error
+                        }
                         None => keep_capture(&config, &file_name, &png, error.as_ref()),
                     });
                 }
@@ -299,18 +302,7 @@ fn run(args: CaptureArgs) -> Result<()> {
         io::stdout().flush()?;
     }
 
-    if saved.is_some() || uploaded.is_some() {
-        let entry = history::Entry {
-            time: now.to_rfc3339(),
-            path: saved.clone(),
-            url: url.map(str::to_string),
-            deletion_url: deletion_url.map(str::to_string),
-        };
-        // The capture is safe already, a broken history must not fail it.
-        if let Err(error) = history::append(&entry) {
-            eprintln!("accioshot: cannot write the history: {error}");
-        }
-    }
+    remember(&now.to_rfc3339(), saved.as_deref(), uploaded.as_ref());
 
     if actions.open_url
         && let Some(url) = url
@@ -345,6 +337,21 @@ fn run(args: CaptureArgs) -> Result<()> {
         });
     }
     Ok(())
+}
+
+fn remember(time: &str, saved: Option<&Path>, uploaded: Option<&sxcu::Uploaded>) {
+    if saved.is_none() && uploaded.is_none() {
+        return;
+    }
+    let entry = history::Entry {
+        time: time.to_string(),
+        path: saved.map(Path::to_path_buf),
+        url: uploaded.map(|uploaded| uploaded.url.clone()),
+        deletion_url: uploaded.and_then(|uploaded| uploaded.deletion_url.clone()),
+    };
+    if let Err(error) = history::append(&entry) {
+        eprintln!("accioshot: cannot write the history: {error}");
+    }
 }
 
 /// The URL comes from a remote server, so only web links get opened.
